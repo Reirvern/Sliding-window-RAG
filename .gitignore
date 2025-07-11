@@ -23,6 +23,8 @@ __pycache__/
 *.pt
 *.gguf
 *.savetensors
+project_structure.txt
+scan.py
 user_data/
 # models/ 
 # Если не хотите хранить модели в гите
