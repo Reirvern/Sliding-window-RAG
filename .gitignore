@@ -25,6 +25,7 @@ __pycache__/
 *.gguf
 *.savetensors
 project_structure.txt
+test.txt
 scan.py
 user_data/
 # models/ 

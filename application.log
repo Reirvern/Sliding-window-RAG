@@ -1,0 +1,17 @@
+2025-07-13 16:54:34,732 - SWRAG - INFO - Приложение запущено
+2025-07-13 16:54:34,733 - SWRAG - DEBUG - Загружен конфиг: {'interface': 'cli', 'language': 'ru', 'log_level': 'DEBUG', 'log_to_console': True, 'log_to_file': True}
+2025-07-13 16:54:34,734 - SWRAG - INFO - Создаем интерфейс типа: cli
+2025-07-13 16:54:34,738 - SWRAG - ERROR - КРИТИЧЕСКАЯ ОШИБКА: cannot import name 'CLIInterface' from 'interface.cli' (C:\Users\Reirvern\Desktop\SWRAG\Sliding-window-RAG\interface\cli.py)
+Traceback (most recent call last):
+  File "C:\Users\Reirvern\Desktop\SWRAG\Sliding-window-RAG\main.py", line 61, in main
+    interface = InterfaceFactory.create_interface(interface_type)
+  File "C:\Users\Reirvern\Desktop\SWRAG\Sliding-window-RAG\interface\factory.py", line 12, in create_interface
+    from .cli import CLIInterface
+ImportError: cannot import name 'CLIInterface' from 'interface.cli' (C:\Users\Reirvern\Desktop\SWRAG\Sliding-window-RAG\interface\cli.py)
+2025-07-13 16:54:34,741 - SWRAG - INFO - Приложение завершено
+2025-07-13 16:56:11,224 - SWRAG - INFO - Приложение запущено
+2025-07-13 16:56:11,226 - SWRAG - DEBUG - Загружен конфиг: {'interface': 'cli', 'language': 'ru', 'log_level': 'DEBUG', 'log_to_console': True, 'log_to_file': True}
+2025-07-13 16:56:11,227 - SWRAG - INFO - Создаем интерфейс типа: cli
+2025-07-13 16:56:11,245 - SWRAG - INFO - Запускаем интерфейс...
+2025-07-13 16:56:43,539 - SWRAG - INFO - Работа интерфейса завершена
+2025-07-13 16:56:43,540 - SWRAG - INFO - Приложение завершено
