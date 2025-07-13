@@ -1,16 +1,33 @@
-class InterfaceFactory:
-    @staticmethod
-    def create_interface(interface_type: str):
-        """
-        Создает и возвращает объект интерфейса по его типу
+from .cli import CLIInterface
+from .gui import GUIInterface
+from .server import ServerInterface
+import logging
+
+def create_interface(interface_type: str, config: dict, rag_engine, logger, translator):
+    """
+    Фабрика для создания интерфейсов
+    
+    Args:
+        interface_type: Тип интерфейса (cli, gui, server)
+        config: Конфигурация приложения
+        rag_engine: Экземпляр RAG Engine
+        logger: Логгер
+        translator: Переводчик
         
-        :param interface_type: Тип интерфейса ('cli', 'gui' и т.д.)
-        :return: Объект интерфейса
-        :raises ValueError: Если передан неизвестный тип интерфейса
-        """
+    Returns:
+        Экземпляр интерфейса
+    """
+    try:
         if interface_type == "cli":
-            from .cli import CLIInterface
-            return CLIInterface()
+            return CLIInterface(config, rag_engine, logger, translator)
+        elif interface_type == "gui":
+            logger.info("Создание GUI интерфейса...")
+            return GUIInterface(config, rag_engine, logger, translator)
+        elif interface_type == "server":
+            logger.info("Создание серверного интерфейса...")
+            return ServerInterface(config, rag_engine, logger, translator)
         else:
-            # Позже можно будет добавить другие интерфейсы
             raise ValueError(f"Неизвестный тип интерфейса: {interface_type}")
+    except Exception as e:
+        logger.error(f"Ошибка при создании интерфейса: {str(e)}")
+        raise

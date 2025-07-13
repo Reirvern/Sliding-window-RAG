@@ -1,89 +1,109 @@
+import sys
+import io
 import json
-import logging
-from interface.factory import InterfaceFactory
+import logging  # ДОБАВЛЕН ИМПОРТ ЛОГГИНГА
+from pathlib import Path
+from typing import Dict, Any  # ДОБАВЛЕН ИМПОРТ ДЛЯ TYPING
 
-def setup_logger(config: dict) -> logging.Logger:
-    """
-    Настраивает и возвращает логгер на основе конфигурации
+if sys.platform.startswith('win'):
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
     
-    :param config: Словарь с настройками логгирования
-    :return: Объект логгера
-    """
-    logger = logging.getLogger("SWRAG")
-    logger.setLevel(config.get("log_level", "INFO"))
-    
-    # Формат сообщений
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    
-    # Консольный вывод
-    if config.get("log_to_console", True):
-        console_handler = logging.StreamHandler()
-        console_handler.setFormatter(formatter)
-        logger.addHandler(console_handler)
-    
-    # Файловый вывод
-    if config.get("log_to_file", False):
-        file_handler = logging.FileHandler("application.log")
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    
-    return logger
+# Утилиты
+from core.utils.logger import setup_logger
+from core.utils.error_handling import log_unhandled_exception
+from core.utils.config_loader import load_config
+from core.utils.localization.translator import Translator
 
-def load_config() -> dict:
+# Фабрики
+from interface.factory import create_interface
+from core.factories.engine_factory import create_rag_engine
+
+# Инициализация глобальных переменных для доступа к основным компонентам
+global_logger = None
+global_config = None
+global_translator = None  # ИСПРАВЛЕНО ИМЯ ПЕРЕМЕННОЙ
+
+def initialize_system(config_path: Path) -> Dict[str, Any]:
     """
-    Загружает конфигурацию приложения из JSON-файла
+    Инициализирует основные компоненты системы
     
-    :return: Словарь с конфигурацией
-    :raises Exception: При ошибке загрузки файла
+    Args:
+        config_path: Путь к файлу конфигурации
+        
+    Returns:
+        Кортеж с основными компонентами (config, logger, translator)
     """
-    config_path = "configs/config.json"
-    try:
-        with open(config_path, "r") as config_file:
-            return json.load(config_file)
-    except Exception as e:
-        raise RuntimeError(f"Ошибка загрузки конфига {config_path}: {str(e)}")
+    # Загрузка конфигурации
+    config = load_config(config_path)
+    
+    # Настройка логгера
+    logger = setup_logger(
+        log_level=config['log_level'],
+        log_to_console=config['log_to_console'],
+        log_to_file=config['log_to_file'],
+        log_file_path=Path('logs') / 'app.log'
+    )
+    
+    # Инициализация системы локализации
+    translator = Translator(config['language'])
+    
+    return config, logger, translator
 
 def main():
-    """Основная функция приложения"""
+    """Основная функция запуска приложения"""
     try:
-        # Загрузка конфигурации
-        config = load_config()
+        # Определение путей
+        BASE_DIR = Path(__file__).parent
+        CONFIG_PATH = BASE_DIR / 'configs' / 'config.json'
         
-        # Настройка логгера
-        logger = setup_logger(config)
-        logger.info("Приложение запущено")
-        logger.debug(f"Загружен конфиг: {config}")
+        # Инициализация системы
+        config, logger, translator = initialize_system(CONFIG_PATH)
         
-        # Создание интерфейса через фабрику
-        interface_type = config.get("interface", "cli")
-        logger.info(f"Создаем интерфейс типа: {interface_type}")
+        # Сохраняем глобально для обработки ошибок
+        global global_logger, global_config, global_translator
+        global_logger = logger
+        global_config = config
+        global_translator = translator
         
-        interface = InterfaceFactory.create_interface(interface_type)
+        logger.info("=" * 60)
+        logger.info("Запуск Alt-RAG системы")
+        logger.debug(f"Версия Python: {sys.version}")
+        logger.info(f"Текущий язык интерфейса: {config['language']}")
+        logger.info("=" * 60)
         
-        # Запуск интерфейса
-        logger.info("Запускаем интерфейс...")
-        result = interface.run()
+        # Создание RAG Engine
+        rag_engine = create_rag_engine(
+            config=config,
+            logger=logger,
+            translator=translator
+        )
         
-        # Вывод результата
-        print("\n" + "=" * 50)
-        print(f"РЕЗУЛЬТАТ: {result}")
-        print("=" * 50)
+        # Создание интерфейса
+        app_interface = create_interface(
+            interface_type=config['interface'],
+            config=config,
+            rag_engine=rag_engine,
+            logger=logger,
+            translator=translator
+        )
         
-        logger.info("Работа интерфейса завершена")
+        # Запуск основного цикла приложения
+        logger.info("Запуск основного интерфейса...")
+        app_interface.run()
         
+        logger.info("Приложение завершило работу успешно")
+        
+
     except Exception as e:
-        # Обработка критических ошибок
-        error_msg = f"КРИТИЧЕСКАЯ ОШИБКА: {str(e)}"
-        print(error_msg)
-        if 'logger' in locals():
-            logger.exception(error_msg)
+        import traceback
+        traceback.print_exc()  # <-- Добавь это временно
+        if global_logger:
+            global_logger.critical("КРИТИЧЕСКАЯ ОШИБКА: Необработанное исключение в основном потоке")
+            log_unhandled_exception(global_logger, e)
         else:
-            # Если логгер не успел инициализироваться
-            with open("crash.log", "a") as f:
-                f.write(error_msg + "\n")
-    finally:
-        if 'logger' in locals():
-            logger.info("Приложение завершено")
+            print(f"Critical error before logger initialization: {str(e)}")
 
 if __name__ == "__main__":
+    # Точка входа при запуске скрипта
     main()

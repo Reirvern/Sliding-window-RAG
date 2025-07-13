@@ -1,0 +1,13 @@
+{
+    "welcome": "Добро пожаловать в Alt-RAG!",
+    "input_path_prompt": "Введите путь к файлам (по умолчанию input/): ",
+    "question_prompt": "Введите ваш вопрос: ",
+    "processing": "Обработка...",
+    "result_title": "Результат:",
+    "progress_chunking": "Чанкирование: {current}/{total} файлов",
+    "progress_retrieval": "Поиск релевантных фрагментов: {percent}%",
+    "progress_processing": "Формирование ответа: {percent}%",
+    "time_remaining": "Осталось: {minutes} мин {seconds} сек",
+    "folder_created": "Создана папка для результатов: {path}",
+    "invalid_path": "Указанный путь не существует. Используется путь по умолчанию."
+}

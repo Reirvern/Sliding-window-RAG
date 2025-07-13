@@ -1,0 +1,13 @@
+{
+    "welcome": "Welcome to Alt-RAG!",
+    "input_path_prompt": "Enter file path (default input/): ",
+    "question_prompt": "Enter your question: ",
+    "processing": "Processing...",
+    "result_title": "Result:",
+    "progress_chunking": "Chunking: {current}/{total} files",
+    "progress_retrieval": "Retrieving relevant chunks: {percent}%",
+    "progress_processing": "Generating answer: {percent}%",
+    "time_remaining": "Time remaining: {minutes} min {seconds} sec",
+    "folder_created": "Output folder created: {path}",
+    "invalid_path": "Invalid path. Using default path."
+}
