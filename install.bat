@@ -1,6 +1,6 @@
 @echo off
-python -m venv .venv
-call .venv\Scripts\activate.bat
+python -m venv rag_venv
+call .\rag_venv\Scripts\activate.bat
 pip install -r requirements.txt
-echo Установка завершена!
+echo installing successfull!
 pause

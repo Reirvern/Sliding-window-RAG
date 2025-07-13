@@ -2,6 +2,7 @@
 venv/
 .venv/
 env/
+rag_venv/
 
 # Игнорировать кэш Python и скомпилированные файлы
 __pycache__/
