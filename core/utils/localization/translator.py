@@ -17,11 +17,13 @@ class Translator:
         
     def _load_translations(self):
         """Загружает переводы из JSON-файлов"""
-        locales_dir = Path(__file__).parent / "localization"
+        self.locales_dir = Path(__file__).resolve().parent
+
+
         
         try:
             # Загрузка всех доступных языков
-            for lang_file in locales_dir.glob("*.json"):
+            for lang_file in self.locales_dir.glob("*.json"):
                 lang_code = lang_file.stem
                 with open(lang_file, 'r', encoding='utf-8') as f:
                     self.translations[lang_code] = json.load(f)
