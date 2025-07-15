@@ -9,6 +9,7 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.log
 
 # Игнорировать файлы настроек IDE (если используете PyCharm, VSCode и т.д.)
 .vscode/

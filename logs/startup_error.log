@@ -1,9 +1,0 @@
-Critical error: name 'logging' is not defined
-Traceback (most recent call last):
-  File "C:\Users\NightHanter\Desktop\нейротест\Alt-RAG\Alt-RAG\main.py", line 54, in main
-    config, logger, translator = initialize_system(CONFIG_PATH)
-  File "C:\Users\NightHanter\Desktop\нейротест\Alt-RAG\Alt-RAG\main.py", line 42, in initialize_system
-    translator = Translator(config['language'])
-  File "C:\Users\NightHanter\Desktop\нейротест\Alt-RAG\Alt-RAG\core\utils\localization\translator.py", line 13, in __init__
-    self.logger = logging.getLogger('AltRAG')
-NameError: name 'logging' is not defined
