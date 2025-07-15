@@ -5,6 +5,8 @@ import logging  # ДОБАВЛЕН ИМПОРТ ЛОГГИНГА
 from pathlib import Path
 from typing import Dict, Any  # ДОБАВЛЕН ИМПОРТ ДЛЯ TYPING
 
+PROJECT_ROOT = Path(__file__).parent
+
 if sys.platform.startswith('win'):
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
