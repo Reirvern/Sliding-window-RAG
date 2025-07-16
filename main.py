@@ -14,12 +14,13 @@ if sys.platform.startswith('win'):
 # Утилиты
 from core.utils.logger import setup_logger
 from core.utils.error_handling import log_unhandled_exception
-from core.utils.config_loader import load_config
+from core.utils.config_loader import load_config, load_rag_config # ДОБАВЛЕНО: импорт load_rag_config
 from core.utils.localization.translator import Translator
 
 # Фабрики
 from interface.factory import create_interface
 from core.factories.engine_factory import create_rag_engine
+from core.domain.models import RAGConfig # ДОБАВЛЕНО: импорт RAGConfig
 
 # Инициализация глобальных переменных для доступа к основным компонентам
 global_logger = None
@@ -58,6 +59,8 @@ def main():
         # Определение путей
         BASE_DIR = Path(__file__).parent
         CONFIG_PATH = BASE_DIR / 'configs' / 'config.json'
+        # ДОБАВЛЕНО: Путь к конфигу RAG Engine
+        RAG_CONFIG_PATH = BASE_DIR / 'configs' / 'rag_engine_config.json' 
         
         # Инициализация системы
         config, logger, translator = initialize_system(CONFIG_PATH)
@@ -74,9 +77,13 @@ def main():
         logger.info(f"Текущий язык интерфейса: {config['language']}")
         logger.info("=" * 60)
         
+        # ДОБАВЛЕНО: Загрузка RAG конфига
+        rag_config: RAGConfig = load_rag_config(RAG_CONFIG_PATH)
+
         # Создание RAG Engine
+        # ИЗМЕНЕНО: Передаем загруженный rag_config
         rag_engine = create_rag_engine(
-            config=config,
+            rag_config=rag_config, # Передаем объект RAGConfig
             logger=logger,
             translator=translator
         )

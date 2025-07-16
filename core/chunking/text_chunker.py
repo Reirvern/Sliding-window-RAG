@@ -1,110 +1,288 @@
-import json
-import nltk
-from nltk.tokenize import sent_tokenize
-from datetime import datetime
-from pathlib import Path
+# core/chunking/text_chunker.py
 import logging
+import re
+from pathlib import Path
+from typing import List, Callable, Dict, Any
+import json
 
-class TextChunker:
-    def __init__(self, chunk_size=2000):
-        self.chunk_size = chunk_size
-        self.setup_nltk()
-    
-    def setup_nltk(self):
+from core.chunking.base_chunker import BaseChunker
+from core.domain.models import Chunk, ChunkingConfig
+
+class TextChunker(BaseChunker):
+    """
+    Чанкер для текстовых файлов (например, .txt).
+    Поддерживает разбиение по символам, предложениям и абзацам.
+    """
+    def __init__(self, config: ChunkingConfig, logger: logging.Logger):
+        super().__init__(config, logger)
+        self.chunk_id_counter = 0 # Счетчик для уникальных ID чанков
+
+    def chunk_file(self,
+                   file_path: Path,
+                   output_dir: Path,
+                   file_index: int,
+                   progress_callback: Callable[[int, int], None]) -> List[Chunk]:
+        """
+        Нарезает текстовый файл на чанки.
+        """
+        self.logger.info(f"Чанкинг текстового файла: {file_path.name}")
+        chunks: List[Chunk] = []
+        file_content = ""
+
         try:
-            nltk.data.find('tokenizers/punkt')
-            nltk.data.find('tokenizers/punkt_tab/russian')
-        except LookupError:
-            print("Загрузка ресурсов NLTK для русского языка...")
-            nltk.download('punkt', quiet=False)
-            nltk.download('punkt_tab', quiet=False)
-    
-    def chunk_file(self, file_path: Path, output_dir: Path):
-        with open(file_path, 'r', encoding='utf-8') as f:
-            text = f.read()
+            with open(file_path, 'r', encoding=self.config.encoding) as f:
+                file_content = f.read()
+        except UnicodeDecodeError:
+            self.logger.error(f"Ошибка декодирования файла {file_path.name} с кодировкой {self.config.encoding}. Попробуйте другую кодировку.")
+            return []
+        except Exception as e:
+            self.logger.error(f"Не удалось прочитать файл {file_path.name}: {e}")
+            return []
+
+        if not file_content.strip():
+            self.logger.warning(f"Файл {file_path.name} пуст или содержит только пробелы. Чанкинг пропущен.")
+            return []
+
+        # Выбираем метод разбиения
+        if self.config.chunk_by == "characters":
+            raw_chunks = self._chunk_by_characters(file_content)
+        elif self.config.chunk_by == "sentences":
+            raw_chunks = self._chunk_by_sentences(file_content)
+        elif self.config.chunk_by == "paragraphs":
+            raw_chunks = self._chunk_by_paragraphs(file_content)
+        else: # По умолчанию или для "recursive" будем использовать символы
+            self.logger.warning(f"Неизвестный тип разбиения '{self.config.chunk_by}'. Использую разбиение по символам.")
+            raw_chunks = self._chunk_by_characters(file_content)
+
+        # Применяем overlap и post-processing (min_chunk_size)
+        processed_chunks = self._apply_overlap_and_min_size(raw_chunks)
         
-        sentences = sent_tokenize(text, language='russian')
-        chunks = []
-        current_chunk = []
-        current_length = 0
+        total_chunks_in_file = len(processed_chunks)
+        for i, (content, start_offset, end_offset) in enumerate(processed_chunks):
+            self.chunk_id_counter += 1
+            chunk_id = f"chunk_{file_index}_{self.chunk_id_counter:05d}"
+            
+            chunk = Chunk(
+                content=content,
+                file_path=file_path,
+                chunk_id=chunk_id,
+                start_offset=start_offset,
+                end_offset=end_offset,
+                metadata={
+                    "file_name": file_path.name,
+                    "file_size": file_path.stat().st_size,
+                    "chunk_source_type": self.config.chunk_by,
+                    "language": self.config.language # Добавил язык как метаданные
+                }
+            )
+            chunks.append(chunk)
+            self._save_chunk_to_json(chunk, output_dir)
+            progress_callback(i + 1, total_chunks_in_file) # Уведомляем о прогрессе для этого файла
+
+        self.logger.debug(f"Создано {len(chunks)} чанков из файла {file_path.name}.")
+        return chunks
+
+    def _chunk_by_characters(self, text: str) -> List[tuple[str, int, int]]:
+        """Разбивает текст по символам с учетом chunk_size и overlap_size."""
+        results = []
+        current_offset = 0
+        while current_offset < len(text):
+            end_offset = min(current_offset + self.config.chunk_size, len(text))
+            chunk_content = text[current_offset:end_offset]
+            results.append((chunk_content, current_offset, end_offset))
+            current_offset += self.config.chunk_size - self.config.overlap_size
+            if self.config.overlap_size > self.config.chunk_size: # Избежать бесконечного цикла
+                self.logger.warning("Overlap size cannot be greater than chunk size. Adjusting overlap.")
+                self.config.overlap_size = self.config.chunk_size // 2
+        return results
+
+    def _chunk_by_sentences(self, text: str) -> List[tuple[str, int, int]]:
+        """
+        Разбивает текст по предложениям.
+        Простая реализация: ищет точки, восклицательные/вопросительные знаки.
+        Для более точного разбиения по предложениям требуются библиотеки, такие как NLTK.
+        """
+        # Разделители предложений: ., !, ? (с учетом кавычек)
+        sentences = re.split(r'(?<=[.!?])\s+', text)
         
+        results = []
+        current_offset = 0
+        current_chunk_content = ""
+        current_chunk_start_offset = 0
+
         for sentence in sentences:
-            sent_length = len(sentence)
+            sentence_len = len(sentence) + (1 if sentence and sentence[-1] in ".!?" else 2) # Учитываем пробел после
             
-            # Обработка слишком длинных предложений
-            if sent_length > self.chunk_size:
-                print(f"Обнаружено длинное предложение ({sent_length} символов)")
-                for i in range(0, sent_length, self.chunk_size):
-                    part = sentence[i:i+self.chunk_size]
-                    chunks.append(part)
+            # Если добавление предложения превысит chunk_size, сохраняем текущий чанк
+            if len(current_chunk_content) + sentence_len > self.config.chunk_size and current_chunk_content:
+                results.append((current_chunk_content.strip(), current_chunk_start_offset, current_offset))
+                current_chunk_content = ""
+                # Перекрываем, если нужно
+                current_chunk_start_offset = max(0, current_offset - self.config.overlap_size)
+                # Ищем ближайший разделитель предложения к start_offset
+                # (для более точного overlap нужно искать начало предыдущего предложения в пределах overlap)
+                
+            if not current_chunk_content: # Если чанк пуст, устанавливаем новый старт
+                current_chunk_start_offset = current_offset
+
+            current_chunk_content += sentence + " " # Добавляем предложение и пробел
+            current_offset += sentence_len
+
+        if current_chunk_content: # Добавляем последний чанк
+            results.append((current_chunk_content.strip(), current_chunk_start_offset, current_offset))
+        
+        return results
+
+    def _chunk_by_paragraphs(self, text: str) -> List[tuple[str, int, int]]:
+        """
+        Разбивает текст по абзацам.
+        Абзацы определяются как текст, разделенный двумя или более переносами строки.
+        """
+        paragraphs = re.split(r'\n\s*\n+', text.strip()) # Разбиваем по двойным переносам строк
+        
+        results = []
+        current_offset = 0
+        
+        for para in paragraphs:
+            para_stripped = para.strip()
+            if not para_stripped:
                 continue
+
+            para_start_offset = text.find(para_stripped, current_offset)
+            para_end_offset = para_start_offset + len(para_stripped)
             
-            if current_length + sent_length <= self.chunk_size:
-                current_chunk.append(sentence)
-                current_length += sent_length
+            # Если абзац слишком большой, разбиваем его на символы
+            if len(para_stripped) > self.config.chunk_size:
+                self.logger.warning(f"Параграф слишком большой ({len(para_stripped)} символов), будет разбит по символам.")
+                # Рекурсивно разбиваем большой абзац по символам
+                sub_chunks = self._chunk_by_characters(para_stripped)
+                for sub_content, sub_start, sub_end in sub_chunks:
+                    results.append((sub_content, para_start_offset + sub_start, para_start_offset + sub_end))
             else:
-                if current_chunk:
-                    chunks.append(" ".join(current_chunk))
-                current_chunk = [sentence]
-                current_length = sent_length
-        
-        if current_chunk:
-            chunks.append(" ".join(current_chunk))
-        
-        output_dir.mkdir(parents=True, exist_ok=True)
-        base_name = file_path.stem
-        
-        for i, chunk in enumerate(chunks):
-            chunk_data = {
-                "content": chunk,
-                "source_file": str(file_path),
-                "chunk_id": f"{base_name}_{i+1}",
-                "created_at": datetime.now().isoformat(),
-                "token_count": len(chunk.split())
-            }
+                results.append((para_stripped, para_start_offset, para_end_offset))
             
-            chunk_file = output_dir / f"{base_name}_chunk_{i+1:04d}.json"
-            with open(chunk_file, 'w', encoding='utf-8') as f:
-                json.dump(chunk_data, f, ensure_ascii=False, indent=2)
+            current_offset = para_end_offset # Обновляем текущее смещение для поиска следующего абзаца
+
+        # Теперь объединим абзацы в чанки, если они слишком маленькие или нужно сделать overlap
+        # Простая реализация объединения абзацев в чанки с учетом chunk_size
+        final_chunks = []
+        current_chunk_content = ""
+        current_chunk_start_offset = 0
+
+        if not results: return []
+
+        for content, start, end in results:
+            if not current_chunk_content:
+                current_chunk_start_offset = start
+            
+            if len(current_chunk_content) + len(content) + 1 > self.config.chunk_size and current_chunk_content:
+                final_chunks.append((current_chunk_content.strip(), current_chunk_start_offset, end)) # Используем end текущего content
+                current_chunk_content = ""
+                current_chunk_start_offset = max(0, start - self.config.overlap_size) # Начинаем новый чанк с перекрытием
+
+            if not current_chunk_content: # Для нового чанка
+                current_chunk_start_offset = start
+
+            current_chunk_content += content + "\n\n" # Добавляем абзац и двойной перенос строки
+
+        if current_chunk_content:
+            final_chunks.append((current_chunk_content.strip(), current_chunk_start_offset, end)) # Последний чанк
         
-        return len(chunks)
+        return final_chunks
 
-def process_text_files():
-    # Определяем пути относительно расположения скрипта
-    script_dir = Path(__file__).parent
-    project_root = script_dir.parent.parent
-    
-    # Создаем папку input, если ее нет
-    input_dir = project_root / "input"
-    input_dir.mkdir(exist_ok=True, parents=True)
-    
-    timestamp = datetime.now().strftime("%d.%m.%y.%H.%M.%S")
-    output_base = project_root / "user_data" / timestamp / "chunks"
-    
-    total_chunks = 0
-    processed_files = 0
-    
-    print(f"Поиск файлов в: {input_dir}")
-    txt_files = list(input_dir.glob("*.txt"))
-    
-    if not txt_files:
-        print(f"Не найдено .txt файлов в папке {input_dir}")
-        print("Поместите текстовые файлы в эту папку и запустите скрипт снова.")
-        return
-    
-    for file_path in txt_files:
-        print(f"Обработка файла: {file_path.name}")
-        num_chunks = TextChunker().chunk_file(file_path, output_base)
-        total_chunks += num_chunks
-        processed_files += 1
-        print(f"  Создано чанков: {num_chunks}")
-    
-    print(f"\nИтоги обработки:")
-    print(f"  Обработано файлов: {processed_files}")
-    print(f"  Всего создано чанков: {total_chunks}")
-    print(f"  Результаты сохранены в: {output_base}")
 
-if __name__ == "__main__":
-    print("Запуск текст-чанкера...")
-    process_text_files()
-    print("Обработка завершена.")
+    def _apply_overlap_and_min_size(self, raw_chunks: List[tuple[str, int, int]]) -> List[tuple[str, int, int]]:
+        """Применяет перекрытие и объединение чанков по min_chunk_size."""
+        processed_chunks = []
+        if not raw_chunks:
+            return []
+
+        # Объединение слишком маленьких чанков
+        temp_chunks = []
+        current_combined_chunk = ""
+        current_start_offset = raw_chunks[0][1] # Начальное смещение первого чанка
+
+        for i, (content, start, end) in enumerate(raw_chunks):
+            if len(content) < self.config.min_chunk_size and (current_combined_chunk or i < len(raw_chunks) - 1):
+                # Если текущий чанк слишком мал ИЛИ мы не последний чанк (есть с чем объединять)
+                # пытаемся объединить его с текущим накопленным чанком
+                if not current_combined_chunk:
+                    current_start_offset = start # Если начинаем новый комбинированный чанк
+                current_combined_chunk += content + " " # Добавляем содержимое
+                
+            else: # Чанк достаточно большой или это последний маленький чанк
+                if current_combined_chunk: # Если есть накопленный маленький чанк, добавляем его
+                    current_combined_chunk += content + " " # Добавляем и текущий (возможно, большой)
+                    # Конец комбинированного чанка - это конец текущего, если он не пустой
+                    combined_end_offset = end if content else (start + len(current_combined_chunk.strip()))
+                    temp_chunks.append((current_combined_chunk.strip(), current_start_offset, combined_end_offset))
+                    current_combined_chunk = "" # Сбрасываем
+                else: # Если накопленного нет, добавляем текущий как есть
+                    temp_chunks.append((content, start, end))
+                current_start_offset = start # Обновляем старт для следующего
+
+        # Повторно проверяем последний накопленный чанк, если он остался
+        if current_combined_chunk:
+            # Если остался только маленький комбинированный чанк и он не соответствует min_chunk_size,
+            # и если есть предыдущий чанк, можно попробовать объединить с ним
+            # Для простоты, здесь мы просто его добавляем, если он сформирован.
+            if temp_chunks:
+                # Попробуем объединить с последним, если он тоже мал
+                last_chunk_content, last_chunk_start, last_chunk_end = temp_chunks[-1]
+                if len(current_combined_chunk.strip()) < self.config.min_chunk_size and \
+                   len(last_chunk_content) < self.config.chunk_size: # Если предыдущий не слишком большой
+                    temp_chunks[-1] = (last_chunk_content + " " + current_combined_chunk.strip(), last_chunk_start, last_chunk_end + len(current_combined_chunk.strip()))
+                else:
+                    temp_chunks.append((current_combined_chunk.strip(), current_start_offset, current_start_offset + len(current_combined_chunk.strip())))
+            else: # Если это единственный чанк
+                temp_chunks.append((current_combined_chunk.strip(), current_start_offset, current_start_offset + len(current_combined_chunk.strip())))
+
+        # (Опционально) Здесь можно добавить более сложную логику перекрытия,
+        # если chunk_by не 'characters', чтобы убедиться, что перекрытие происходит
+        # по границам предложений/абзацев.
+        # Для "characters" и текущей имитации "sentences"/"paragraphs",
+        # базовая логика перекрытия уже заложена в соответствующих методах.
+        
+        # Дополнительная проверка на min_chunk_size после всех операций,
+        # чтобы гарантировать, что все чанки соответствуют минимальному размеру.
+        final_processed_chunks = []
+        for content, start, end in temp_chunks:
+            if len(content) >= self.config.min_chunk_size:
+                final_processed_chunks.append((content, start, end))
+            else:
+                self.logger.warning(f"Чанк [{content[:50]}...] имеет размер {len(content)} < min_chunk_size {self.config.min_chunk_size}. Он может быть пропущен или объединен.")
+                # Здесь можно было бы реализовать логику объединения с соседним чанком,
+                # если текущий слишком мал и не был объединен ранее.
+                # Для простоты пока просто добавляем его, или можно пропустить, если он совсем мал и не удается объединить.
+                if len(content) > 0: # Не добавляем совсем пустые чанки
+                    final_processed_chunks.append((content, start, end))
+
+        return final_processed_chunks
+
+
+    def _save_chunk_to_json(self, chunk: Chunk, output_dir: Path):
+        """Сохраняет один чанк в JSON файл."""
+        chunk_data = {
+            "chunk_id": chunk.chunk_id,
+            "file_name": chunk.file_path.name,
+            "original_file_path": str(chunk.file_path),
+            "content": chunk.content,
+            "start_offset": chunk.start_offset,
+            "end_offset": chunk.end_offset,
+            "length": len(chunk.content),
+            "metadata": chunk.metadata
+        }
+        
+        # Убедимся, что папка для чанков существует
+        chunks_output_path = output_dir / "chunks"
+        chunks_output_path.mkdir(parents=True, exist_ok=True)
+
+        # Сохраняем чанк в файл
+        chunk_file_name = f"{chunk.chunk_id}.json"
+        chunk_file_path = chunks_output_path / chunk_file_name
+        try:
+            with open(chunk_file_path, 'w', encoding='utf-8') as f:
+                json.dump(chunk_data, f, ensure_ascii=False, indent=4)
+            self.logger.debug(f"Чанк {chunk.chunk_id} сохранен в {chunk_file_path}")
+        except Exception as e:
+            self.logger.error(f"Ошибка при сохранении чанка {chunk.chunk_id} в {chunk_file_path}: {e}")

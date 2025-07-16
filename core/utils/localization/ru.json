@@ -9,5 +9,20 @@
     "progress_processing": "Формирование ответа: {percent}%",
     "time_remaining": "Осталось: {minutes} мин {seconds} сек",
     "folder_created": "Создана папка для результатов: {path}",
-    "invalid_path": "Указанный путь не существует. Используется путь по умолчанию."
+    "invalid_path": "Указанный путь не существует. Используется путь по умолчанию.",
+    "progress_chunking_overall": "Чанкинг документов",
+    "progress_retrieval_overall": "Поиск фрагментов",
+    "progress_synthesis_overall": "Формирование ответа",
+    "chunking_complete_log": "Чанкинг завершен. Создано {chunks} чанков.",
+    "retrieval_complete_log": "Ретривинг завершен. Найдено {chunks} релевантных чанков.",
+    "synthesis_complete_log": "Синтез ответа завершен.",
+    "rag_process_complete_log": "RAG процесс завершен успешно.",
+    "no_chunks_to_process": "Нет чанков для обработки.",
+    "no_relevant_chunks": "Не найдено релевантных чанков для ответа.",
+    "error_in_stage": "Ошибка на этапе '{stage}': {error}",
+    "rag_process_error": "Ошибка в процессе RAG: {error}",
+    "final_answer_prefix": "Итоговый ответ:",
+    "summary_from_chunks": "(Сгенерировано на основе {chunks} релевантных фрагментов.)",
+    "synthesis_prompt_template": "Используя следующий контекст:\n{context}\n\nОтветь на вопрос: {question}\n\nОтвет:",
+    "error_saving_query": "Ошибка при сохранении запроса в {file}. Подробности в логах."
 }

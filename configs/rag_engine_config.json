@@ -1,0 +1,25 @@
+{
+    "chunking": {
+        "chunk_size": 1000,
+        "overlap_size": 100,
+        "chunk_by": "sentences",
+        "keep_sentences_together": true,
+        "encoding": "utf-8",
+        "language": "ru",
+        "min_chunk_size": 50,
+        "model_name": null
+    },
+    "retrieval": {
+        "strategy_type": 1,
+        "model_path": "models/retrieval_model.gguf",
+        "keywords": ["Alt-RAG", "проект", "архитектура"],
+        "top_k": 3
+    },
+    "synthesis": {
+        "model_path": "models/synthesis_model.gguf",
+        "temperature": 0.7,
+        "max_new_tokens": 500,
+        "prompt_template": "Используя следующий контекст:\n{context}\n\nОтветь на вопрос: {question}"
+    },
+    "general_language": "ru"
+}
