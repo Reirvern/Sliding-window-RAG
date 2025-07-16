@@ -1,7 +1,11 @@
 {
-  "interface": "cli",
   "language": "ru",
-  "log_level": "DEBUG",
-  "log_to_console": true,
-  "log_to_file": true
+  "interface": "cli",
+  "logging": {
+    "level": "INFO",
+    "log_to_console": true,
+    "console_level": "WARNING",
+    "log_to_file": true,
+    "log_file_path": "logs/app.log"
+  }
 }

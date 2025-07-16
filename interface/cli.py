@@ -5,129 +5,104 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
+from typing import Any # Импортируем Any
 from core.utils.localization.translator import Translator
 from core.domain.models import RAGQuery # Импортируем DTO
 from core.utils.observer import Observer # Импортируем Observer
 
-class CLIInterface(Observer): # CLIInterface теперь является наблюдателем
+class CLIInterface(Observer): # CLIInterface должен быть Observer
     """Интерфейс командной строки для Alt-RAG"""
     
     def __init__(self, config: dict, rag_engine, logger, translator: Translator):
-        super().__init__() # Вызываем инициализатор Observer
+        super().__init__() # Убедимся, что Observer инициализирован
         self.config = config
         self.rag_engine = rag_engine
         self.logger = logger
         self.translator = translator
         self.output_dir = None
-        self.progress_bars = {} # Для управления прогресс-барами tqdm
-        
-        # Регистрируем CLIInterface как наблюдателя RAGEngine
-        self.rag_engine.add_observer(self)
+        self.progress_bars = {} # Словарь для хранения активных прогресс-баров
 
     def run(self):
         """Основной цикл CLI интерфейса"""
         # Приветствие
-        print(self.translator.translate("welcome"))
+        print(self.translator.translate("welcome")) # Здесь print() допустим, т.к. баров еще нет
         
         # Создание папки для результатов
         self._create_output_folder()
         
         # Запрос пути к файлам
-        input_path = self._get_input_path()
+        input_path_str = self._get_input_path()
+        input_path = Path(input_path_str) # Преобразуем в Path объект
         
         # Запрос вопроса
         question = self._get_question()
         
-        # Создание объекта RAGQuery DTO
-        rag_query = RAGQuery(
-            question=question,
-            input_path=input_path,
-            output_dir=self.output_dir
-        )
+        # Сохранение запроса
+        self._save_query(question)
         
-        # Сохранение запроса через DTO
-        self._save_query(rag_query)
+        # Создаем DTO запроса
+        rag_query = RAGQuery(question=question, input_path=input_path, output_dir=self.output_dir)
+
+        # Запуск обработки с прогресс-барами (теперь через RAGEngine)
+        self.logger.info(self.translator.translate("processing"))
+        tqdm.write("\n" + self.translator.translate("processing")) # Используем tqdm.write()
         
-        # Запуск обработки
-        print("\n" + self.translator.translate("processing"))
-        
-        # Запускаем RAGEngine и ждем ответа
-        final_answer = self.rag_engine.run(rag_query) # Вызов RAGEngine
-        
+        final_answer = self.rag_engine.run(rag_query) # Запускаем RAG Engine
+
         # Вывод результата
-        self._display_final_result(final_answer)
+        tqdm.write("\n" + self.translator.translate("result_title"))
+        tqdm.write("-" * 50)
+        tqdm.write(final_answer)
+        tqdm.write("-" * 50)
         
     def _create_output_folder(self):
         """Создает уникальную папку для результатов"""
         timestamp = datetime.now().strftime("%d%m%y_%H%M%S")
-        base_dir = Path("user_data") / "outputs" / timestamp
-        self.output_dir = base_dir
+        base_dir = Path("user_data") / "outputs"
+        self.output_dir = base_dir / timestamp
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.logger.info(self.translator.translate("folder_created").format(path=self.output_dir))
+        print(self.translator.translate("folder_created").format(path=self.output_dir)) # Здесь print() допустим
         
-        # Создаем подпапки
-        (base_dir / "query").mkdir(parents=True, exist_ok=True)
-        (base_dir / "chunks").mkdir(exist_ok=True)
-        (base_dir / "relevant_chunks").mkdir(exist_ok=True)
-        (base_dir / "analysis").mkdir(exist_ok=True)
-        (base_dir / "answer").mkdir(exist_ok=True)
+    def _get_input_path(self) -> str:
+        """Запрашивает у пользователя путь к файлам"""
+        default_path = "input/"
+        input_path_str = input(self.translator.translate("input_path_prompt"))
+        if not input_path_str:
+            input_path_str = default_path
         
-        msg = self.translator.translate(
-            "folder_created", 
-            path=str(self.output_dir)
-        )
-        print(msg)
-        self.logger.info(msg)
-    
-    def _get_input_path(self) -> Path:
-        """Запрашивает путь к файлам у пользователя"""
-        default_path = Path("input")
-        prompt = self.translator.translate("input_path_prompt")
+        # Проверка существования пути
+        if not Path(input_path_str).exists():
+            self.logger.warning(self.translator.translate("invalid_path").format(path=input_path_str))
+            print(self.translator.translate("invalid_path")) # Здесь print() допустим
+            input_path_str = default_path # Возвращаемся к дефолтному, если путь невалиден
+            
+        return input_path_str
         
-        user_input = input(prompt).strip()
-        if not user_input:
-            print(f"Используется путь по умолчанию: {default_path}") 
-            return default_path
-        
-        input_path = Path(user_input)
-        if not input_path.exists():
-            print(self.translator.translate("invalid_path"))
-            print(f"Будет использован путь по умолчанию: {default_path}") 
-            return default_path
-        
-        return input_path
-    
     def _get_question(self) -> str:
-        """Запрашивает вопрос у пользователя"""
-        prompt = self.translator.translate("question_prompt")
-        return input(prompt).strip()
-    
-    def _save_query(self, rag_query: RAGQuery):
-        """Сохраняет запрос в папку query"""
+        """Запрашивает у пользователя вопрос"""
+        return input(self.translator.translate("question_prompt"))
+        
+    def _save_query(self, question: str):
+        """Сохраняет запрос пользователя в файл"""
+        query_dir = self.output_dir / "query"
+        query_dir.mkdir(parents=True, exist_ok=True)
+        query_file_path = query_dir / "query.json"
+        
         query_data = {
             "timestamp": datetime.now().isoformat(),
-            "question": rag_query.question, 
-            "input_path": str(rag_query.input_path) 
+            "question": question
         }
         
-        query_file = rag_query.output_dir / "query" / "query.json" 
         try:
-            with open(query_file, 'w', encoding='utf-8') as f:
+            with open(query_file_path, 'w', encoding='utf-8') as f:
                 json.dump(query_data, f, ensure_ascii=False, indent=4)
-            self.logger.info(f"Запрос сохранен в {query_file}")
+            self.logger.info(f"Запрос сохранен в {query_file_path}")
         except Exception as e:
-            self.logger.error(f"Ошибка при сохранении запроса в {query_file}: {e}")
-            print(self.translator.translate("error_saving_query").format(file=query_file))
+            self.logger.error(self.translator.translate("error_saving_query").format(file=query_file_path), exc_info=True)
+            print(self.translator.translate("error_saving_query").format(file=query_file_path))
 
-    def _display_final_result(self, result: str):
-        """Выводит финальный результат пользователю."""
-        print("\n" + self.translator.translate("result_title"))
-        print("-" * 50)
-        print(result)
-        print("-" * 50)
-
-    # interface/cli.py (фрагмент в методе update)
-    # ... (остальной импорт и инициализация) ...
-
-    def update(self, message_type: str, data: any):
+    def update(self, message_type: str, data: Any):
         """
         Обрабатывает уведомления от наблюдаемых объектов (RAGEngine, сервисов).
         """
@@ -135,79 +110,107 @@ class CLIInterface(Observer): # CLIInterface теперь является на�
             stage = data.get("stage")
             
             if stage == "chunking":
-                current_file = data.get("current")
-                total_files = data.get("total")
+                # Получаем данные о прогрессе
+                current_file_index = data.get("current_file_index")
+                total_files = data.get("total_files")
                 file_name = data.get("file_name")
-                file_progress_percent = data.get("file_progress_percent") # Новый параметр
-                
-                # Если прогресс-бара для чанкинга еще нет, создаем его
-                if stage not in self.progress_bars:
-                    self.progress_bars[stage] = tqdm(total=total_files, desc=self.translator.translate("progress_chunking_overall"), unit="file")
-                
-                pbar = self.progress_bars[stage]
-                # Для чанкинга, мы обновляем бар по файлам, но можем использовать file_progress_percent для более точной desc
-                
-                # Если это новое "обновление" файла (не просто прогресс внутри файла), то обновляем tqdm.
-                # Т.к. `current` инкрементируется за каждый обработанный файл, то `pbar.n` должен соответствовать `current_file - 1`
-                if pbar.n < current_file:
-                    pbar.update(current_file - pbar.n) # Обновляем на разницу, чтобы не пропускать шаги
+                current_chunk_in_file = data.get("current_chunk_in_file")
+                total_chunks_in_file = data.get("total_chunks_in_file")
+                overall_progress_percent = data.get("file_progress_percent") # Это общий процент
 
-                # Обновляем описание прогресс-бара
+                # Создаем/получаем общий прогресс-бар для чанкинга (по процентам)
+                if "chunking_overall" not in self.progress_bars:
+                    self.progress_bars["chunking_overall"] = tqdm(
+                        total=100, # Прогресс от 0 до 100%
+                        desc=self.translator.translate("progress_chunking_overall"), 
+                        unit="%", 
+                        leave=True, # Оставляем бар после завершения
+                        position=0 # Верхняя позиция
+                    )
+                
+                pbar = self.progress_bars["chunking_overall"]
+                # Обновляем прогресс-бар до текущего процента
+                pbar.n = overall_progress_percent
+                pbar.refresh() # Принудительное обновление для немедленного отображения
+                
+                # Обновляем описание бара для более детальной информации
                 pbar.set_description(
-                    self.translator.translate("progress_chunking", current=current_file, total=total_files) + 
-                    f" ({file_name}, {file_progress_percent}%)" # Добавил имя файла и процент
+                    self.translator.translate("progress_chunking", current=current_file_index, total=total_files) + 
+                    f" ({file_name}, {current_chunk_in_file}/{total_chunks_in_file} chunks)"
                 )
 
             elif stage == "retrieval":
                 current = data.get("current")
                 total = data.get("total")
-                if stage not in self.progress_bars:
-                    self.progress_bars[stage] = tqdm(total=total, desc=self.translator.translate("progress_retrieval_overall"), unit="chunk")
                 
-                pbar = self.progress_bars[stage]
-                pbar.update(1)
+                if "retrieval_overall" not in self.progress_bars:
+                    self.progress_bars["retrieval_overall"] = tqdm(
+                        total=total, 
+                        desc=self.translator.translate("progress_retrieval_overall"), 
+                        unit="chunk", 
+                        leave=True,
+                        position=0 # Верхняя позиция
+                    )
+                
+                pbar = self.progress_bars["retrieval_overall"]
+                if pbar.n < current:
+                    pbar.update(current - pbar.n)
+                
                 percent = int((current / total) * 100)
                 pbar.set_description(self.translator.translate("progress_retrieval", percent=percent))
 
             elif stage == "synthesis":
                 current = data.get("current")
                 total = data.get("total")
-                if stage not in self.progress_bars:
-                    self.progress_bars[stage] = tqdm(total=total, desc=self.translator.translate("progress_synthesis_overall"), unit="step")
                 
-                pbar = self.progress_bars[stage]
-                pbar.update(1)
+                if "synthesis_overall" not in self.progress_bars:
+                    self.progress_bars["synthesis_overall"] = tqdm(
+                        total=total, 
+                        desc=self.translator.translate("progress_synthesis_overall"), 
+                        unit="step", 
+                        leave=True,
+                        position=0 # Верхняя позиция
+                    )
+                
+                pbar = self.progress_bars["synthesis_overall"]
+                if pbar.n < current:
+                    pbar.update(current - pbar.n)
+                
                 percent = int((current / total) * 100)
                 pbar.set_description(self.translator.translate("progress_processing", percent=percent))
             
-            # ... (остальные типы сообщений: complete, status, error) ...
-            
         elif message_type == "complete":
             stage = data.get("stage")
-            if stage in self.progress_bars:
-                self.progress_bars[stage].close() # Закрываем прогресс-бар
-                del self.progress_bars[stage]
+            
+            # Закрываем соответствующий прогресс-бар, если он существует
+            pbar_key = f"{stage}_overall"
+            if pbar_key in self.progress_bars:
+                self.progress_bars[pbar_key].close()
+                del self.progress_bars[pbar_key]
             
             # Выводим сообщение о завершении этапа
             if stage == "chunking":
-                self.logger.info(self.translator.translate("chunking_complete_log").format(chunks=data.get("total_chunks")))
+                tqdm.write(self.translator.translate("chunking_complete_log").format(chunks=data.get("total_chunks")))
             elif stage == "retrieval":
-                self.logger.info(self.translator.translate("retrieval_complete_log").format(chunks=data.get("relevant_chunks_count")))
+                tqdm.write(self.translator.translate("retrieval_complete_log").format(chunks=data.get("relevant_chunks_count")))
             elif stage == "synthesis":
-                self.logger.info(self.translator.translate("synthesis_complete_log"))
-            elif stage == "rag_process": 
-                self.logger.info(self.translator.translate("rag_process_complete_log"))
-                for pbar_key in list(self.progress_bars.keys()):
-                    self.progress_bars[pbar_key].close()
-                    del self.progress_bars[pbar_key]
+                tqdm.write(self.translator.translate("synthesis_complete_log"))
+            
+            # Финальное сообщение о завершении RAG процесса
+            if stage == "rag_process": 
+                tqdm.write(self.translator.translate("rag_process_complete_log"))
+                # Убедимся, что все бары закрыты
+                for pbar_key_left in list(self.progress_bars.keys()):
+                    self.progress_bars[pbar_key_left].close()
+                    del self.progress_bars[pbar_key_left]
 
         elif message_type == "status":
             message = data.get("message")
-            self.logger.info(message)
-            print(f"\n{message}")
+            tqdm.write(message)
 
         elif message_type == "error":
             stage = data.get("stage")
             error_msg = data.get("error")
             self.logger.error(self.translator.translate("error_in_stage").format(stage=stage, error=error_msg))
-            print(self.translator.translate("error_in_stage").format(stage=stage, error=error_msg))
+            tqdm.write(self.translator.translate("error_in_stage").format(stage=stage, error=error_msg))
+

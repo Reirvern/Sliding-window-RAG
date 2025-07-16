@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Dict, Type
 
 from core.chunking.base_chunker import BaseChunker
+from core.chunking.fb2_chunker import FB2Chunker
 from core.chunking.text_chunker import TextChunker # Импортируем текстовый чанкер
 from core.domain.models import ChunkingConfig
 
@@ -14,6 +15,7 @@ class ChunkerFactory:
     # Словарь для регистрации чанкеров по расширениям файлов
     _chunker_map: Dict[str, Type[BaseChunker]] = {
         ".txt": TextChunker,
+        ".fb2": FB2Chunker, # ДОБАВЛЕНО: Регистрация FB2Chunker
         # TODO: Добавьте сюда другие типы файлов и соответствующие чанкеры
         # ".pdf": PdfChunker,
         # ".docx": DocxChunker,

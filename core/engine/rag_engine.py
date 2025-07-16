@@ -8,6 +8,7 @@ from core.services.retrieval_service import RetrievalService
 from core.services.synthesis_service import SynthesisService
 from core.utils.localization.translator import Translator
 from core.utils.observer import Observable, Observer
+from core.factories.inference_factory import InferenceFactory # Импортируем фабрику инференса
 
 class RAGEngine(Observable):
     """
@@ -20,8 +21,17 @@ class RAGEngine(Observable):
         self.logger = logger
         self.translator = translator
 
+        # Инициализация инференс-движков (они пока не загружены)
+        self.retrieval_inference_engine = InferenceFactory.get_engine(
+            config=self.config.retrieval_inference,
+            logger=self.logger
+        )
+        self.synthesis_inference_engine = InferenceFactory.get_engine(
+            config=self.config.synthesis_inference,
+            logger=self.logger
+        )
+
         # Инициализация сервисов
-        # Передаем им соответствующие части общего RAGConfig и логгер/транслятор
         self.chunking_service = ChunkingService(
             config=self.config.chunking,
             logger=self.logger
@@ -29,16 +39,17 @@ class RAGEngine(Observable):
         self.retrieval_service = RetrievalService(
             config=self.config.retrieval,
             logger=self.logger,
-            translator=self.translator
+            translator=self.translator,
+            inference_engine=self.retrieval_inference_engine # Передаем движок для ретривинга
         )
         self.synthesis_service = SynthesisService(
             config=self.config.synthesis,
             logger=self.logger,
-            translator=self.translator
+            translator=self.translator,
+            inference_engine=self.synthesis_inference_engine # Передаем движок для синтеза
         )
 
         # Регистрация RAGEngine как Observer для своих сервисов
-        # Это позволит RAGEngine получать прогресс от сервисов и передавать его дальше
         self.chunking_service.add_observer(self)
         self.retrieval_service.add_observer(self)
         self.synthesis_service.add_observer(self)
@@ -52,6 +63,8 @@ class RAGEngine(Observable):
         """
         self.logger.info(f"Начинаю RAG процесс для запроса: '{rag_query.question}'")
         self.notify_observers("status", {"message": self.translator.translate("rag_process_started")})
+
+        final_answer = self.translator.translate("rag_process_error").format(error="Неизвестная ошибка.") # Дефолтный ответ на случай ошибки
 
         try:
             # 1. Чанкинг
@@ -68,8 +81,12 @@ class RAGEngine(Observable):
             # 2. Ретривинг
             self.logger.info("Шаг 2: Поиск релевантных чанков...")
             self.notify_observers("status", {"message": self.translator.translate("retrieval_in_progress")})
+            
+            # ЗАГРУЗКА МОДЕЛИ ДЛЯ РЕТРИВИНГА
+            self.retrieval_inference_engine.load_model() 
             relevant_chunks = self.retrieval_service.retrieve(rag_query, chunks)
-            # TODO: Сохранить релевантные чанки в rag_query.output_dir / "relevant_chunks"
+            # ВЫГРУЗКА МОДЕЛИ ДЛЯ РЕТРИВИНГА
+            self.retrieval_inference_engine.unload_model() 
 
             if not relevant_chunks:
                 self.logger.warning("Нет релевантных чанков для синтеза.")
@@ -79,7 +96,13 @@ class RAGEngine(Observable):
             # 3. Синтез ответа
             self.logger.info("Шаг 3: Синтез финального ответа...")
             self.notify_observers("status", {"message": self.translator.translate("synthesis_in_progress")})
+            
+            # ЗАГРУЗКА МОДЕЛИ ДЛЯ СИНТЕЗА
+            self.synthesis_inference_engine.load_model()
             final_answer = self.synthesis_service.synthesize_answer(rag_query, relevant_chunks)
+            # ВЫГРУЗКА МОДЕЛИ ДЛЯ СИНТЕЗА
+            self.synthesis_inference_engine.unload_model() 
+
             # TODO: Сохранить финальный ответ в rag_query.output_dir / "answer"
 
             self.logger.info("RAG процесс завершен успешно.")
@@ -89,7 +112,16 @@ class RAGEngine(Observable):
         except Exception as e:
             self.logger.error(f"Ошибка в процессе RAG: {e}", exc_info=True)
             self.notify_observers("error", {"stage": "rag_process", "error": str(e)})
-            return self.translator.translate("rag_process_error").format(error=str(e))
+            final_answer = self.translator.translate("rag_process_error").format(error=str(e))
+            return final_answer
+        finally:
+            # Убедимся, что все модели выгружены, даже если произошла ошибка
+            # (хотя теперь они выгружаются после каждого шага, это хорошая подстраховка)
+            if self.retrieval_inference_engine._loaded_model:
+                self.retrieval_inference_engine.unload_model()
+            if self.synthesis_inference_engine._loaded_model:
+                self.synthesis_inference_engine.unload_model()
+
 
     def update(self, message_type: str, data: Any):
         """
@@ -97,5 +129,6 @@ class RAGEngine(Observable):
         Перенаправляет уведомления своим собственным наблюдателям (например, CLI).
         """
         self.notify_observers(message_type, data)
-        # Дополнительно можно логировать или обрабатывать сообщения здесь
-        self.logger.debug(f"RAGEngine получил уведомление: Type={message_type}, Data={data}")
+        # ИЗМЕНЕНО: Логируем DEBUG сообщения только для не-прогресс обновлений
+        if message_type != "progress":
+            self.logger.debug(f"RAGEngine получил уведомление: Type={message_type}, Data={data}")

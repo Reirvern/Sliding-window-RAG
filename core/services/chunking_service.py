@@ -38,20 +38,21 @@ class ChunkingService(Observable):
                 
                 # Функция обратного вызова для прогресса в рамках одного файла
                 def file_progress_callback(current_chunk_in_file: int, total_chunks_in_file: int):
-                    # Преобразуем прогресс файла в общий прогресс чанкинга
-                    # Это упрощенный расчет, можно сделать более точный, если известны размеры файлов
-                    overall_progress = (i / total_files) + (current_chunk_in_file / total_chunks_in_file / total_files)
+                    # Отправляем детальное уведомление о прогрессе
                     self.notify_observers("progress", {
                         "stage": "chunking",
-                        "current": i + 1, # Номер текущего файла
-                        "total": total_files, # Общее количество файлов
+                        "current_file_index": i + 1, # Номер текущего файла
+                        "total_files": total_files, # Общее количество файлов
                         "file_name": file_path.name,
-                        "file_progress_percent": int(overall_progress * 100) # Прогресс в % по всем файлам
+                        "current_chunk_in_file": current_chunk_in_file, # Текущий чанк в файле
+                        "total_chunks_in_file": total_chunks_in_file, # Всего чанков в файле
+                        "file_progress_percent": int(((i / total_files) + (current_chunk_in_file / total_chunks_in_file / total_files)) * 100) # Общий прогресс в %
                     })
 
                 file_chunks = chunker.chunk_file(file_path, rag_query.output_dir, i, file_progress_callback)
                 all_chunks.extend(file_chunks)
-                self.logger.debug(f"Обработан файл {file_path.name}, создано {len(file_chunks)} чанков.")
+                # ИЗМЕНЕНО: Удалены DEBUG логи, которые могли мешать tqdm
+                # self.logger.debug(f"Обработан файл {file_path.name}, создано {len(file_chunks)} чанков.")
             except ValueError as e:
                 self.logger.error(f"Ошибка при чанкинге файла {file_path.name}: {e}")
             except Exception as e:

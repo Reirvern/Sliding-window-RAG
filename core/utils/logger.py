@@ -1,3 +1,4 @@
+# core/utils/logger.py
 import logging
 import logging.handlers
 import os
@@ -7,14 +8,16 @@ from datetime import datetime, timedelta
 
 def setup_logger(log_level: str, 
                 log_to_console: bool, 
+                console_log_level: str, # НОВЫЙ ПАРАМЕТР: Уровень логирования для консоли
                 log_to_file: bool,
                 log_file_path: Path) -> logging.Logger:
     """
     Инициализирует и настраивает логгер системы
     
     Args:
-        log_level: Уровень логирования (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+        log_level: Уровень логирования для общего логгера (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_to_console: Флаг вывода в консоль
+        console_log_level: Уровень логирования для консоли (например, INFO, WARNING, ERROR)
         log_to_file: Флаг записи в файл
         log_file_path: Путь к файлу логов
         
@@ -31,29 +34,28 @@ def setup_logger(log_level: str,
         'ERROR': logging.ERROR,
         'CRITICAL': logging.CRITICAL
     }
+    
+    # Уровень для общего логгера и файлового хэндлера
     log_level_numeric = level_mapping.get(log_level.upper(), logging.DEBUG)
     logger.setLevel(log_level_numeric)
     
     # Форматтер с таймстампом, уровнем и сообщением
     formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        '%(asctime)s - %(levelname)s - %(message)s'
     )
     
-    # Очистка предыдущих обработчиков
-    for handler in logger.handlers[:]:
-        logger.removeHandler(handler)
-    
-    # Консольный обработчик
+    # Консольный хэндлер
     if log_to_console:
         console_handler = logging.StreamHandler(sys.stdout)
         console_handler.setFormatter(formatter)
-        console_handler.setLevel(log_level_numeric)
+        # ИСПОЛЬЗУЕМ console_log_level ДЛЯ КОНСОЛЬНОГО ХЭНДЛЕРА
+        console_handler_numeric_level = level_mapping.get(console_log_level.upper(), logging.INFO)
+        console_handler.setLevel(console_handler_numeric_level)
         logger.addHandler(console_handler)
     
-    # Файловый обработчик с ротацией
+    # Файловый хэндлер
     if log_to_file:
-        # Создаем директорию для логов, если не существует
+        # Убедимся, что директория для логов существует
         log_file_path.parent.mkdir(parents=True, exist_ok=True)
         
         # Ротация по размеру (15 МБ) + очистка старых логов
@@ -64,7 +66,7 @@ def setup_logger(log_level: str,
             encoding='utf-8'
         )
         file_handler.setFormatter(formatter)
-        file_handler.setLevel(log_level_numeric)
+        file_handler.setLevel(log_level_numeric) # Файловый хэндлер использует основной log_level
         logger.addHandler(file_handler)
         
         # Очистка логов старше 14 дней
@@ -87,11 +89,10 @@ def cleanup_old_logs(log_dir: Path, days_to_keep: int = 14):
         if log_file.is_file():
             # Получаем время последнего изменения
             mtime = datetime.fromtimestamp(log_file.stat().st_mtime)
-            
-            # Удаляем файлы старше cutoff
             if mtime < cutoff:
                 try:
-                    log_file.unlink()
-                    print(f"Удален старый лог: {log_file.name}")
-                except Exception as e:
-                    print(f"Ошибка удаления лога {log_file.name}: {str(e)}")
+                    os.remove(log_file)
+                    logging.getLogger('AltRAG').info(f"Удален старый лог-файл: {log_file}")
+                except OSError as e:
+                    logging.getLogger('AltRAG').error(f"Ошибка при удалении лог-файла {log_file}: {e}")
+

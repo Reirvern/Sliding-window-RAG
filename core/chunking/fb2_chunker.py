@@ -1,17 +1,25 @@
-# core/chunking/text_chunker.py
+# core/chunking/fb2_chunker.py
 import logging
 import re
 from pathlib import Path
 from typing import List, Callable, Dict, Any
 import json
+import xml.etree.ElementTree as ET # Импортируем XML парсер
 
 from core.chunking.base_chunker import BaseChunker
 from core.domain.models import Chunk, ChunkingConfig
 
-class TextChunker(BaseChunker):
+# Пространства имен FB2 для корректного парсинга XML
+# (могут меняться, но это наиболее распространенные)
+FB2_NAMESPACES = {
+    'f': 'http://www.gribuser.ru/xml/fictionbook/2.0',
+    'l': 'http://www.w3.org/1999/xlink'
+}
+
+class FB2Chunker(BaseChunker):
     """
-    Чанкер для текстовых файлов (например, .txt).
-    Поддерживает разбиение по символам, предложениям и абзацам.
+    Чанкер для файлов формата FictionBook (FB2).
+    Извлекает текстовое содержимое и нарезает его на чанки.
     """
     def __init__(self, config: ChunkingConfig, logger: logging.Logger):
         super().__init__(config, logger)
@@ -23,36 +31,47 @@ class TextChunker(BaseChunker):
                    file_index: int,
                    progress_callback: Callable[[int, int], None]) -> List[Chunk]:
         """
-        Нарезает текстовый файл на чанки.
+        Нарезает FB2 файл на чанки.
         """
-        self.logger.info(f"Чанкинг текстового файла: {file_path.name}")
+        self.logger.info(f"Чанкинг FB2 файла: {file_path.name}")
         chunks: List[Chunk] = []
-        file_content = ""
+        full_text_content = ""
 
         try:
-            with open(file_path, 'r', encoding=self.config.encoding) as f:
-                file_content = f.read()
-        except UnicodeDecodeError:
-            self.logger.error(f"Ошибка декодирования файла {file_path.name} с кодировкой {self.config.encoding}. Попробуйте другую кодировку.")
+            tree = ET.parse(file_path)
+            root = tree.getroot()
+
+            # Извлекаем текст из основных разделов книги
+            # Ищем теги <body f:name="main"> или просто <body>
+            main_body = root.find('f:body[@f:name="main"]', FB2_NAMESPACES) or root.find('f:body', FB2_NAMESPACES)
+
+            if main_body is None:
+                self.logger.warning(f"Не найден основной 'body' в файле {file_path.name}. Попытка извлечь весь текст.")
+                full_text_content = self._extract_text_from_element(root)
+            else:
+                full_text_content = self._extract_text_from_element(main_body)
+
+        except ET.ParseError as e:
+            self.logger.error(f"Ошибка парсинга FB2 файла {file_path.name}: {e}")
             return []
         except Exception as e:
-            self.logger.error(f"Не удалось прочитать файл {file_path.name}: {e}")
+            self.logger.error(f"Не удалось прочитать или обработать FB2 файл {file_path.name}: {e}", exc_info=True)
             return []
 
-        if not file_content.strip():
-            self.logger.warning(f"Файл {file_path.name} пуст или содержит только пробелы. Чанкинг пропущен.")
+        if not full_text_content.strip():
+            self.logger.warning(f"FB2 файл {file_path.name} пуст или не содержит извлекаемого текста. Чанкинг пропущен.")
             return []
 
-        # Выбираем метод разбиения
+        # Выбираем метод разбиения, аналогично TextChunker
         if self.config.chunk_by == "characters":
-            raw_chunks = self._chunk_by_characters(file_content)
+            raw_chunks = self._chunk_by_characters(full_text_content)
         elif self.config.chunk_by == "sentences":
-            raw_chunks = self._chunk_by_sentences(file_content)
+            raw_chunks = self._chunk_by_sentences(full_text_content)
         elif self.config.chunk_by == "paragraphs":
-            raw_chunks = self._chunk_by_paragraphs(file_content)
-        else: # По умолчанию или для "recursive" будем использовать символы
+            raw_chunks = self._chunk_by_paragraphs(full_text_content)
+        else:
             self.logger.warning(f"Неизвестный тип разбиения '{self.config.chunk_by}'. Использую разбиение по символам.")
-            raw_chunks = self._chunk_by_characters(file_content)
+            raw_chunks = self._chunk_by_characters(full_text_content)
 
         # Применяем overlap и post-processing (min_chunk_size)
         processed_chunks = self._apply_overlap_and_min_size(raw_chunks)
@@ -66,22 +85,60 @@ class TextChunker(BaseChunker):
                 content=content,
                 file_path=file_path,
                 chunk_id=chunk_id,
-                start_offset=start_offset,
-                end_offset=end_offset,
+                start_offset=start_offset, # Эти смещения будут относительными к извлеченному full_text_content
+                end_offset=end_offset,     # а не к исходному XML. Это упрощение.
                 metadata={
                     "file_name": file_path.name,
                     "file_size": file_path.stat().st_size,
                     "chunk_source_type": self.config.chunk_by,
-                    "language": self.config.language # Добавил язык как метаданные
+                    "language": self.config.language,
+                    "original_format": "fb2"
                 }
             )
             chunks.append(chunk)
             self._save_chunk_to_json(chunk, output_dir)
-            progress_callback(i + 1, total_chunks_in_file) # Уведомляем о прогрессе для этого файла
+            progress_callback(i + 1, total_chunks_in_file)
 
         # ИЗМЕНЕНО: Удален DEBUG лог, который мог мешать tqdm
-        # self.logger.debug(f"Создано {len(chunks)} чанков из файла {file_path.name}.")
+        # self.logger.debug(f"Создано {len(chunks)} чанков из файла {file.name}.")
         return chunks
+
+    def _extract_text_from_element(self, element: ET.Element) -> str:
+        """
+        Рекурсивно извлекает весь текстовый контент из XML-элемента,
+        добавляя переносы строк для разделения абзацев/блоков.
+        """
+        texts = []
+        if element.text:
+            texts.append(element.text.strip())
+
+        for child in element:
+            # Обрабатываем специфические теги для форматирования
+            tag_name = child.tag.split('}')[-1] # Получаем имя тега без пространства имен
+
+            if tag_name in ['p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'subtitle', 'text-author', 'epigraph', 'annotation', 'poem', 'stanza', 'cite']:
+                # Добавляем двойной перенос строки для абзацев и заголовков
+                texts.append(self._extract_text_from_element(child) + "\n\n")
+            elif tag_name in ['strong', 'emphasis', 'strikethrough', 'sub', 'sup']:
+                # Встроенные теги, просто извлекаем текст без дополнительных переносов
+                texts.append(self._extract_text_from_element(child))
+            else:
+                # Для остальных тегов, просто рекурсивно извлекаем текст
+                texts.append(self._extract_text_from_element(child))
+
+            if child.tail:
+                texts.append(child.tail.strip())
+        
+        return " ".join(filter(None, texts)).strip() # Объединяем, убирая пустые строки
+
+    # Методы _chunk_by_characters, _chunk_by_sentences, _chunk_by_paragraphs,
+    # _apply_overlap_and_min_size и _save_chunk_to_json
+    # могут быть скопированы из TextChunker.py, так как они работают с обычным текстом.
+    # Для избежания дублирования кода, в будущем их можно вынести в отдельный
+    # вспомогательный модуль или сделать TextChunker базовым для других текстовых чанкеров.
+
+    # Для текущей задачи, я скопирую их сюда, чтобы FB2Chunker был самодостаточным.
+    # В реальном проекте, я бы рекомендовал рефакторинг этих общих методов.
 
     def _chunk_by_characters(self, text: str) -> List[tuple[str, int, int]]:
         """Разбивает текст по символам с учетом chunk_size и overlap_size."""
@@ -120,8 +177,6 @@ class TextChunker(BaseChunker):
                 current_chunk_content = ""
                 # Перекрываем, если нужно
                 current_chunk_start_offset = max(0, current_offset - self.config.overlap_size)
-                # Ищем ближайший разделитель предложения к start_offset
-                # (для более точного overlap нужно искать начало предыдущего предложения в пределах overlap)
                 
             if not current_chunk_content: # Если чанк пуст, устанавливаем новый старт
                 current_chunk_start_offset = current_offset
@@ -149,6 +204,8 @@ class TextChunker(BaseChunker):
             if not para_stripped:
                 continue
 
+            # Ищем точное смещение абзаца в исходном тексте
+            # Это может быть не идеально, если есть много пробелов или спецсимволов
             para_start_offset = text.find(para_stripped, current_offset)
             if para_start_offset == -1: # Если не нашли, ищем с начала
                 para_start_offset = text.find(para_stripped)
@@ -168,7 +225,6 @@ class TextChunker(BaseChunker):
             current_offset = para_end_offset # Обновляем текущее смещение для поиска следующего абзаца
 
         # Теперь объединим абзацы в чанки, если они слишком маленькие или нужно сделать overlap
-        # Простая реализация объединения абзацев в чанки с учетом chunk_size
         final_chunks = []
         current_chunk_content = ""
         current_chunk_start_offset = 0
@@ -179,10 +235,13 @@ class TextChunker(BaseChunker):
             if not current_chunk_content:
                 current_chunk_start_offset = start
             
+            # Проверяем, не превысит ли добавление текущего контента chunk_size
+            # Если превысит и текущий чанк уже не пуст, сохраняем его
             if len(current_chunk_content) + len(content) + 1 > self.config.chunk_size and current_chunk_content:
-                final_chunks.append((current_chunk_content.strip(), current_chunk_start_offset, end)) # Используем end текущего content
+                final_chunks.append((current_chunk_content.strip(), current_chunk_start_offset, end)) 
                 current_chunk_content = ""
-                current_chunk_start_offset = max(0, start - self.config.overlap_size) # Начинаем новый чанк с перекрытием
+                # Начинаем новый чанк с перекрытием, если это возможно
+                current_chunk_start_offset = max(0, start - self.config.overlap_size) 
 
             if not current_chunk_content: # Для нового чанка
                 current_chunk_start_offset = start

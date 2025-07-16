@@ -65,33 +65,55 @@ class ChunkingConfig:
         self.min_chunk_size = min_chunk_size
         self.model_name = model_name
 
+class InferenceConfig:
+    """
+    DTO для конфигурации инференс-движка и параметров генерации.
+    """
+    def __init__(self,
+                 engine_type: Literal["llamacpp", "vllm_stub", "hf_transformers_stub"] = "llamacpp",
+                 model_path: Path = Path("models/default_model.gguf"),
+                 n_gpu_layers: int = 0, # Количество слоев, выгружаемых на GPU (для llama.cpp)
+                 device_type: Literal["cpu", "cuda", "amd", "integrated", "auto"] = "auto", # Тип устройства
+                 n_ctx: int = 2048, # <-- ЭТОТ ПАРАМЕТР ДОЛЖЕН БЫТЬ ЗДЕСЬ
+                 temperature: float = 0.7,
+                 max_new_tokens: int = 500,
+                 top_p: float = 0.95,
+                 top_k: int = 40,
+                 repeat_penalty: float = 1.1,
+                 stop_sequences: Optional[List[str]] = None,
+                 prompt_template: str = "{prompt}"): # Общий шаблон промпта
+        self.engine_type = engine_type
+        self.model_path = model_path
+        self.n_gpu_layers = n_gpu_layers
+        self.device_type = device_type
+        self.n_ctx = n_ctx # <-- И ЗДЕСЬ ОН ИНИЦИАЛИЗИРУЕТСЯ
+        self.temperature = temperature
+        self.max_new_tokens = max_new_tokens
+        self.top_p = top_p
+        self.top_k = top_k
+        self.repeat_penalty = repeat_penalty
+        self.stop_sequences = stop_sequences if stop_sequences is not None else []
+        self.prompt_template = prompt_template
+
 class RetrievalConfig:
     """
     DTO для конфигурации модуля ретривинга.
     """
     def __init__(self,
                  strategy_type: int = 1, # Номер стратегии (для фабрики)
-                 model_path: Optional[Path] = None, # Путь к модели для ретривинга
-                 keywords: Optional[List[str]] = None, # Для стратегии с ключевыми словами
-                 top_k: int = 5): # Сколько наиболее релевантных чанков вернуть
+                 top_k: int = 5, # Сколько наиболее релевантных чанков вернуть
+                 keywords: Optional[List[str]] = None): # Для стратегии с ключевыми словами
         self.strategy_type = strategy_type
-        self.model_path = model_path
-        self.keywords = keywords if keywords is not None else []
         self.top_k = top_k
+        self.keywords = keywords if keywords is not None else []
 
 class SynthesisConfig:
     """
     DTO для конфигурации модуля синтеза/генерации ответа.
     """
     def __init__(self,
-                 model_path: Optional[Path] = None, # Путь к финальной модели
-                 temperature: float = 0.7,
-                 max_new_tokens: int = 500,
-                 prompt_template: str = ""):
-        self.model_path = model_path
-        self.temperature = temperature
-        self.max_new_tokens = max_new_tokens
-        self.prompt_template = prompt_template # Возможно, специфичный промпт
+                 prompt_template: str = ""): # Специфический шаблон промпта для синтеза
+        self.prompt_template = prompt_template
 
 class RAGConfig:
     """
@@ -101,10 +123,14 @@ class RAGConfig:
                  chunking_config: ChunkingConfig,
                  retrieval_config: RetrievalConfig,
                  synthesis_config: SynthesisConfig,
+                 retrieval_inference_config: InferenceConfig, # Конфиг для инференса ретривера
+                 synthesis_inference_config: InferenceConfig, # Конфиг для инференса синтеза
                  general_language: str = 'en'): # Язык для промптов и т.д.
         self.chunking = chunking_config
         self.retrieval = retrieval_config
         self.synthesis = synthesis_config
+        self.retrieval_inference = retrieval_inference_config
+        self.synthesis_inference = synthesis_inference_config
         self.general_language = general_language
 
 # Добавьте другие DTO по мере необходимости, например, RetrievalResult, Answer
