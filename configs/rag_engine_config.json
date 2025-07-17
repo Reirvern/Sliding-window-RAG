@@ -24,13 +24,13 @@
         "n_gpu_layers": 26,
         "device_type": "gpu",
         "n_ctx": 4096, 
-        "temperature": 0.1,
-        "max_new_tokens": 50,
-        "top_p": 0.9,
-        "top_k": 20,
-        "repeat_penalty": 1.0,
-        "stop_sequences": ["\n", "Вопрос:", "Context:"],
-        "prompt_template": "Проанализируй следующий фрагмент текста и ответь 'Да' или 'Нет', содержит ли он информацию, релевантную вопросу:\n\nВопрос: {prompt}\n\nФрагмент: {chunk_content}\n\nРелевантно (Да/Нет):"
+        "temperature": 0.8,
+        "max_new_tokens": 150,
+        "top_p": 0.95,
+        "top_k": 40,
+        "repeat_penalty": 1.1,
+        "stop_sequences": [],
+        "prompt_template": "проанализируй отрывок ниже, и дай ответ в форме да/нет на вопрос : {prompt} ответ дать одним словом, либо 'да', либо 'нет' \n\n{chunk_content}\n"
     },
     "synthesis_inference": {
         "engine_type": "llamacpp",
@@ -44,7 +44,7 @@
         "top_k": 40,
         "repeat_penalty": 1.1,
         "stop_sequences": ["\n\nВопрос:", "###", "User:"],
-        "prompt_template": "{prompt}"
+        "prompt_template": "{prompt}" 
     },
     "general_language": "ru"
 }

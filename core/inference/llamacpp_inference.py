@@ -62,21 +62,26 @@ class LlamacppInferenceEngine(BaseInferenceEngine):
             self.logger.critical(f"Ошибка при загрузке модели {self.config.model_path.name}: {e}", exc_info=True)
             raise RuntimeError(f"Не удалось загрузить модель: {e}")
 
-    def generate(self, prompt: str, **kwargs) -> str:
+    def generate(self, prompt: str, **format_kwargs) -> str:
         """
         Генерирует текст, используя загруженную модель.
+        :param prompt: Основной промпт для LLM.
+        :param format_kwargs: Дополнительные аргументы для форматирования prompt_template (например, chunk_content).
         """
         if not self._loaded_model:
             self.logger.error(f"Модель {self.config.model_path.name} не загружена перед вызовом generate. Это ошибка в логике.")
             return "Ошибка: Модель не загружена."
 
         # Применяем параметры генерации
-        gen_params = self._apply_generation_params(kwargs)
+        gen_params = self._apply_generation_params(format_kwargs) # Используем format_kwargs для извлечения параметров генерации
 
-        # Применяем общий шаблон промпта, если он задан
-        final_prompt = self.config.prompt_template.format(prompt=prompt)
+        try:
+            final_prompt = self.config.prompt_template.format(prompt=prompt, **format_kwargs)
+        except KeyError as e:
+            self.logger.error(f"Ошибка форматирования промпта: отсутствует ключ {e}. Проверьте prompt_template в конфиге.")
+            return f"Ошибка форматирования промпта: отсутствует ключ {e}."
 
-        self.logger.debug(f"Генерация с промптом (начало): {final_prompt[:100]}...")
+        self.logger.debug(f"Генерация с промптом (начало): {final_prompt[:200]}...") # Увеличил для отладки
         self.logger.debug(f"Параметры генерации: {gen_params}")
 
         try:
@@ -89,8 +94,19 @@ class LlamacppInferenceEngine(BaseInferenceEngine):
                 repeat_penalty=gen_params.get("repeat_penalty"),
                 stop=gen_params.get("stop"),
             )
-            generated_text = output["choices"][0]["text"]
-            self.logger.debug(f"Сгенерированный текст (начало): {generated_text[:100]}...")
+            
+            # --- ДОБАВЛЕНО ДЛЯ ОТЛАДКИ ---
+            self.logger.debug(f"Полный ответ от create_completion: {output}")
+            if "choices" in output and len(output["choices"]) > 0:
+                generated_text = output["choices"][0].get("text", "")
+                self.logger.debug(f"Извлеченный сгенерированный текст: {generated_text.strip()[:200]}...") # Увеличил для отладки
+                if not generated_text:
+                    self.logger.warning("Сгенерированный текст пуст!")
+            else:
+                generated_text = ""
+                self.logger.warning("Ответ 'choices' от LLM пуст или отсутствует.")
+            # --- КОНЕЦ ОТЛАДКИ ---
+
             return generated_text
         except Exception as e:
             self.logger.error(f"Ошибка при генерации текста: {e}", exc_info=True)
@@ -107,3 +123,4 @@ class LlamacppInferenceEngine(BaseInferenceEngine):
             gc.collect() # Принудительная сборка мусора
         else:
             self.logger.info("Модель не загружена, выгрузка не требуется.")
+

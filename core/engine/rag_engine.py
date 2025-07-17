@@ -132,3 +132,4 @@ class RAGEngine(Observable):
         # ИЗМЕНЕНО: Логируем DEBUG сообщения только для не-прогресс обновлений
         if message_type != "progress":
             self.logger.debug(f"RAGEngine получил уведомление: Type={message_type}, Data={data}")
+

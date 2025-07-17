@@ -1,4 +1,4 @@
-# core/retrieval/window_retriever.py
+# core/retrieval/keyword_retriever.py
 import logging
 from typing import List, Pattern
 from pathlib import Path
@@ -9,10 +9,10 @@ from core.retrieval.base_retriever import BaseRetriever
 from core.domain.models import RAGQuery, Chunk, RetrievalConfig, InferenceConfig
 from core.utils.localization.translator import Translator # Для перевода сообщений
 
-class WindowRetriever(BaseRetriever):
+class KeywordRetriever(BaseRetriever):
     """
-    Стратегия ретривинга, которая анализирует каждый чанк с помощью LLM
-    для определения его релевантности.
+    Стратегия ретривинга, основанная на поиске ключевых слов
+    и использовании LLM для подтверждения релевантности.
     """
     def __init__(self, 
                  config: RetrievalConfig, 
@@ -31,9 +31,10 @@ class WindowRetriever(BaseRetriever):
                  chunks: List[Chunk],
                  inference_engine) -> List[Chunk]:
         """
-        Ищет релевантные чанки, анализируя каждый чанк с помощью LLM.
+        Ищет релевантные чанки, используя ключевые слова (если заданы)
+        и подтверждая релевантность с помощью LLM.
         """
-        self.logger.info(f"Начинаю ретривинг с WindowRetriever. Всего чанков: {len(chunks)}")
+        self.logger.info(f"Начинаю ретривинг с KeywordRetriever. Всего чанков: {len(chunks)}")
         self.notify_observers("status", {"message": self.translator.translate("retrieval_strategy_start").format(strategy_type=self.config.strategy_type)})
 
         relevant_chunks: List[Chunk] = []
@@ -51,6 +52,17 @@ class WindowRetriever(BaseRetriever):
                 "current": i + 1,
                 "total": total_chunks
             })
+
+            # Оптимизация: если заданы ключевые слова, сначала проверяем их
+            if self.config.keywords:
+                found_keywords = False
+                for keyword in self.config.keywords:
+                    if keyword.lower() in chunk.content.lower():
+                        found_keywords = True
+                        break
+                if not found_keywords:
+                    self.logger.debug(f"Чанк {chunk.chunk_id} пропущен (нет ключевых слов).")
+                    continue # Пропускаем чанк, если нет ключевых слов
 
             # ИЗМЕНЕНО: Передаем prompt и chunk_content как отдельные аргументы
             self.logger.debug(f"Отправляю чанк {chunk.chunk_id} в LLM для оценки релевантности.")
