@@ -39,7 +39,7 @@ class Chunk:
 
     def __repr__(self):
         return (f"Chunk(chunk_id='{self.chunk_id}', "
-                f"file_path='{self.file_path.name}', "
+                f"file_name='{self.file_path.name}', "
                 f"start={self.start_offset}, end={self.end_offset}, "
                 f"content='{self.content[:50]}...')")
 
@@ -74,7 +74,7 @@ class InferenceConfig:
                  model_path: Path = Path("models/default_model.gguf"),
                  n_gpu_layers: int = 0, # Количество слоев, выгружаемых на GPU (для llama.cpp)
                  device_type: Literal["cpu", "cuda", "amd", "integrated", "auto"] = "auto", # Тип устройства
-                 n_ctx: int = 2048, # <-- ЭТОТ ПАРАМЕТР ДОЛЖЕН БЫТЬ ЗДЕСЬ
+                 n_ctx: int = 2048, # Размер контекстного окна для модели
                  temperature: float = 0.7,
                  max_new_tokens: int = 500,
                  top_p: float = 0.95,
@@ -86,7 +86,7 @@ class InferenceConfig:
         self.model_path = model_path
         self.n_gpu_layers = n_gpu_layers
         self.device_type = device_type
-        self.n_ctx = n_ctx # <-- И ЗДЕСЬ ОН ИНИЦИАЛИЗИРУЕТСЯ
+        self.n_ctx = n_ctx
         self.temperature = temperature
         self.max_new_tokens = max_new_tokens
         self.top_p = top_p
@@ -102,10 +102,12 @@ class RetrievalConfig:
     def __init__(self,
                  strategy_type: int = 1, # Номер стратегии (для фабрики)
                  top_k: int = 5, # Сколько наиболее релевантных чанков вернуть
-                 keywords: Optional[List[str]] = None): # Для стратегии с ключевыми словами
+                 keywords: Optional[List[str]] = None, # Для стратегии с ключевыми словами
+                 retriever_prompt: str = ""): # ИЗМЕНЕНО: Добавляем retriever_prompt
         self.strategy_type = strategy_type
         self.top_k = top_k
         self.keywords = keywords if keywords is not None else []
+        self.retriever_prompt = retriever_prompt # ИЗМЕНЕНО: Инициализируем retriever_prompt
 
 class SynthesisConfig:
     """
@@ -132,5 +134,3 @@ class RAGConfig:
         self.retrieval_inference = retrieval_inference_config
         self.synthesis_inference = synthesis_inference_config
         self.general_language = general_language
-
-# Добавьте другие DTO по мере необходимости, например, RetrievalResult, Answer

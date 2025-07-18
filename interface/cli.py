@@ -5,12 +5,12 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from tqdm import tqdm
-from typing import Any # Импортируем Any
+from typing import Any
 from core.utils.localization.translator import Translator
-from core.domain.models import RAGQuery # Импортируем DTO
-from core.utils.observer import Observer # Импортируем Observer
+from core.domain.models import RAGQuery
+from core.utils.observer import Observer
 
-class CLIInterface(Observer): # CLIInterface должен быть Observer
+class CLIInterface(Observer):
     """Интерфейс командной строки для Alt-RAG"""
     
     def __init__(self, config: dict, rag_engine, logger, translator: Translator):
@@ -47,6 +47,14 @@ class CLIInterface(Observer): # CLIInterface должен быть Observer
         self.logger.info(self.translator.translate("processing"))
         tqdm.write("\n" + self.translator.translate("processing")) # Используем tqdm.write()
         
+        # Важно: CLIInterface должен быть добавлен как наблюдатель к rag_engine
+        # Это уже сделано в main.py, но стоит убедиться, что rag_engine передается
+        # сюда и что add_observer вызывается.
+        # В вашем main.py: app_interface = create_interface(...)
+        # и затем app_interface.run(). Внутри create_interface(factory.py)
+        # rag_engine.add_observer(app_interface) должен быть вызван.
+        # Проверим это в фабрике, если проблема сохранится.
+
         final_answer = self.rag_engine.run(rag_query) # Запускаем RAG Engine
 
         # Вывод результата
@@ -119,65 +127,91 @@ class CLIInterface(Observer): # CLIInterface должен быть Observer
                 overall_progress_percent = data.get("file_progress_percent") # Это общий процент
 
                 # Создаем/получаем общий прогресс-бар для чанкинга (по процентам)
-                if "chunking_overall" not in self.progress_bars:
-                    self.progress_bars["chunking_overall"] = tqdm(
-                        total=100, # Прогресс от 0 до 100%
-                        desc=self.translator.translate("progress_chunking_overall"), 
-                        unit="%", 
-                        leave=True, # Оставляем бар после завершения
-                        position=0 # Верхняя позиция
+                pbar_key = "chunking_overall"
+                if pbar_key not in self.progress_bars:
+                    # Убедимся, что total_files > 0, иначе tqdm может быть некорректным
+                    if total_files > 0:
+                        self.progress_bars[pbar_key] = tqdm(
+                            total=100, # Прогресс от 0 до 100%
+                            desc=self.translator.translate("progress_chunking_overall"), 
+                            unit="%", 
+                            leave=True, # Оставляем бар после завершения
+                            position=0 # Верхняя позиция
+                        )
+                    else:
+                        self.logger.warning("Общее количество файлов для чанкинга равно 0. Прогресс-бар не будет отображен.")
+                        return # Выходим, если нечего отображать
+                
+                pbar = self.progress_bars.get(pbar_key) # Используем .get() на случай, если бар не был создан
+                if pbar: # Проверяем, что pbar существует
+                    # Обновляем прогресс-бар до текущего процента
+                    # tqdm.n - это текущее значение, tqdm.update(x) добавляет x
+                    # Если мы получаем абсолютный процент, нужно установить pbar.n
+                    if pbar.n != overall_progress_percent:
+                        pbar.n = overall_progress_percent
+                        pbar.refresh() # Принудительное обновление для немедленного отображения
+                    
+                    # Обновляем описание бара для более детальной информации
+                    pbar.set_description(
+                        self.translator.translate("progress_chunking", current=current_file_index, total=total_files) + 
+                        f" ({file_name}, {current_chunk_in_file}/{total_chunks_in_file} chunks)"
                     )
-                
-                pbar = self.progress_bars["chunking_overall"]
-                # Обновляем прогресс-бар до текущего процента
-                pbar.n = overall_progress_percent
-                pbar.refresh() # Принудительное обновление для немедленного отображения
-                
-                # Обновляем описание бара для более детальной информации
-                pbar.set_description(
-                    self.translator.translate("progress_chunking", current=current_file_index, total=total_files) + 
-                    f" ({file_name}, {current_chunk_in_file}/{total_chunks_in_file} chunks)"
-                )
 
             elif stage == "retrieval":
                 current = data.get("current")
                 total = data.get("total")
                 
-                if "retrieval_overall" not in self.progress_bars:
-                    self.progress_bars["retrieval_overall"] = tqdm(
-                        total=total, 
-                        desc=self.translator.translate("progress_retrieval_overall"), 
-                        unit="chunk", 
-                        leave=True,
-                        position=0 # Верхняя позиция
-                    )
+                pbar_key = "retrieval_overall"
+                if pbar_key not in self.progress_bars:
+                    # Убедимся, что total > 0, иначе tqdm может не отображаться
+                    if total > 0:
+                        self.progress_bars[pbar_key] = tqdm(
+                            total=total, 
+                            desc=self.translator.translate("progress_retrieval_overall"), 
+                            unit="chunk", 
+                            leave=True,
+                            position=0 # Верхняя позиция
+                        )
+                    else: # Если total == 0, не создаем бар
+                        self.logger.warning("Общее количество чанков для ретривинга равно 0. Прогресс-бар не будет отображен.")
+                        return # Выходим, если нет чего отображать
                 
-                pbar = self.progress_bars["retrieval_overall"]
-                if pbar.n < current:
-                    pbar.update(current - pbar.n)
-                
-                percent = int((current / total) * 100)
-                pbar.set_description(self.translator.translate("progress_retrieval", percent=percent))
+                pbar = self.progress_bars.get(pbar_key) # Используем .get() на случай, если бар не был создан
+                if pbar: # Проверяем, что pbar существует
+                    if pbar.n < current:
+                        pbar.update(current - pbar.n)
+                    
+                    # Избегаем ZeroDivisionError, если total вдруг станет 0 после инициализации
+                    percent = int((current / total) * 100) if total > 0 else 0
+                    pbar.set_description(self.translator.translate("progress_retrieval", percent=percent))
 
             elif stage == "synthesis":
                 current = data.get("current")
                 total = data.get("total")
                 
-                if "synthesis_overall" not in self.progress_bars:
-                    self.progress_bars["synthesis_overall"] = tqdm(
-                        total=total, 
-                        desc=self.translator.translate("progress_synthesis_overall"), 
-                        unit="step", 
-                        leave=True,
-                        position=0 # Верхняя позиция
-                    )
+                pbar_key = "synthesis_overall"
+                if pbar_key not in self.progress_bars:
+                    # Убедимся, что total > 0, иначе tqdm может не отображаться
+                    if total > 0:
+                        self.progress_bars[pbar_key] = tqdm(
+                            total=total, 
+                            desc=self.translator.translate("progress_synthesis_overall"), 
+                            unit="step", 
+                            leave=True,
+                            position=0 # Верхняя позиция
+                        )
+                    else:
+                        self.logger.warning("Общее количество шагов для синтеза равно 0. Прогресс-бар не будет отображен.")
+                        return
                 
-                pbar = self.progress_bars["synthesis_overall"]
-                if pbar.n < current:
-                    pbar.update(current - pbar.n)
-                
-                percent = int((current / total) * 100)
-                pbar.set_description(self.translator.translate("progress_processing", percent=percent))
+                pbar = self.progress_bars.get(pbar_key)
+                if pbar:
+                    if pbar.n < current:
+                        pbar.update(current - pbar.n)
+                    
+                    # Избегаем ZeroDivisionError, если total вдруг станет 0 после инициализации
+                    percent = int((current / total) * 100) if total > 0 else 0
+                    pbar.set_description(self.translator.translate("progress_processing", percent=percent))
             
         elif message_type == "complete":
             stage = data.get("stage")
@@ -201,8 +235,9 @@ class CLIInterface(Observer): # CLIInterface должен быть Observer
                 tqdm.write(self.translator.translate("rag_process_complete_log"))
                 # Убедимся, что все бары закрыты
                 for pbar_key_left in list(self.progress_bars.keys()):
-                    self.progress_bars[pbar_key_left].close()
-                    del self.progress_bars[pbar_key_left]
+                    if pbar_key_left in self.progress_bars: # Дополнительная проверка, чтобы избежать ошибок
+                        self.progress_bars[pbar_key_left].close()
+                        del self.progress_bars[pbar_key_left]
 
         elif message_type == "status":
             message = data.get("message")

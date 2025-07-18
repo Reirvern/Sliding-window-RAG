@@ -1,4 +1,3 @@
-# main.py
 import sys
 import io
 import json
@@ -15,13 +14,13 @@ if sys.platform.startswith('win'):
 # Утилиты
 from core.utils.logger import setup_logger
 from core.utils.error_handling import log_unhandled_exception
-from core.utils.config_loader import load_config # Используем load_config для общих настроек приложения
+from core.utils.config_loader import load_config, load_rag_config
 from core.utils.localization.translator import Translator
 
 # Фабрики
 from interface.factory import create_interface
 from core.factories.engine_factory import create_rag_engine
-from core.utils.config_loader import load_rag_config # Используем load_rag_config для RAG-специфичных настроек
+from core.domain.models import RAGConfig
 
 # Инициализация глобальных переменных для доступа к основным компонентам
 global_logger = None
@@ -38,88 +37,90 @@ def initialize_system(config_path: Path) -> Dict[str, Any]:
     Returns:
         Кортеж с основными компонентами (config, logger, translator)
     """
-    # Загрузка общей конфигурации приложения
-    app_config = load_config(config_path)
-
+    # Загрузка конфигурации
+    config = load_config(config_path)
+    
     # Настройка логгера
+    # ИЗМЕНЕНО: Передаем строковые значения уровней логирования
     logger = setup_logger(
-        log_level=app_config['logging']['level'],
-        log_to_console=app_config['logging']['log_to_console'],
-        console_log_level=app_config['logging'].get('console_level', 'INFO'), # НОВОЕ: Получаем console_level
-        log_to_file=app_config['logging']['log_to_file'],
-        log_file_path=Path(app_config['logging']['log_file_path'])
+        log_level=config['logging']['level'], # Передаем строку
+        log_to_console=config['logging']['log_to_console'],
+        console_log_level=config['logging']['console_level'], # Передаем строку
+        log_to_file=config['logging']['log_to_file'],
+        log_file_path=Path('logs') / 'app.log'
     )
     
-    # Загрузка RAG конфигурации (отдельно, так как она более сложная)
-    rag_config = load_rag_config(Path("configs/rag_engine_config.json")) # Предполагаем фиксированный путь для RAG конфига
-
-    # Инициализация переводчика
-    translator = Translator(language=app_config['language'])
-
-    return {
-        "app_config": app_config,
-        "rag_config": rag_config,
-        "logger": logger,
-        "translator": translator
-    }
-
-if __name__ == "__main__":
-    config_file_path = PROJECT_ROOT / "configs" / "config.json"
+    # Инициализация системы локализации
+    translator = Translator(config['language'])
     
-    # Устанавливаем обработчик для необработанных исключений
-    sys.excepthook = lambda exc_type, exc_value, exc_traceback: log_unhandled_exception(global_logger, exc_type, exc_value, exc_traceback)
+    return config, logger, translator
 
+def main():
+    """Основная функция запуска приложения"""
     try:
+        # Определение путей
+        BASE_DIR = Path(__file__).parent
+        CONFIG_PATH = BASE_DIR / 'configs' / 'config.json'
+        RAG_CONFIG_PATH = BASE_DIR / 'configs' / 'rag_engine_config.json' 
+        
         # Инициализация системы
-        system_components = initialize_system(config_file_path)
-        app_config = system_components["app_config"]
-        rag_config = system_components["rag_config"]
-        logger = system_components["logger"]
-        translator = system_components["translator"]
-
+        config, logger, translator = initialize_system(CONFIG_PATH)
+        
+        # Сохраняем глобально для обработки ошибок
+        global global_logger, global_config, global_translator
         global_logger = logger
-        global_config = app_config # Сохраняем app_config в global_config
+        global_config = config
         global_translator = translator
         
         logger.info("=" * 60)
-        logger.info(translator.translate("app_start"))
+        logger.info("Запуск Alt-RAG системы")
         logger.debug(f"Версия Python: {sys.version}")
-        logger.info(translator.translate("current_language").format(language=app_config['language']))
+        logger.info(f"Текущий язык интерфейса: {config['language']}")
         logger.info("=" * 60)
         
+        # Загрузка RAG конфига
+        rag_config: RAGConfig = load_rag_config(RAG_CONFIG_PATH)
+
         # Создание RAG Engine
         rag_engine = create_rag_engine(
-            rag_config=rag_config, # ИЗМЕНЕНО: Имя параметра изменено с 'config' на 'rag_config'
+            rag_config=rag_config,
             logger=logger,
             translator=translator
         )
         
         # Создание интерфейса
         app_interface = create_interface(
-            interface_type=app_config['interface'],
-            config=app_config, # Передаем app_config здесь
+            interface_type=config['interface'],
+            config=config,
             rag_engine=rag_engine,
             logger=logger,
             translator=translator
         )
         
-        # Регистрация интерфейса как наблюдателя для RAG Engine
+
+        # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ЗДЕСЬ: РЕГИСТРАЦИЯ CLIInterface КАК НАБЛЮДАТЕЛЯ RAGEngine ---
+        # Поскольку CLIInterface является Observer, и RAGEngine является Observable,
+        # CLIInterface должен быть добавлен как наблюдатель к RAGEngine,
+        # чтобы получать уведомления о прогрессе.
         rag_engine.add_observer(app_interface)
+        # ----------------------------------------------------------------------------------
 
         # Запуск основного цикла приложения
-        logger.info(translator.translate("interface_start"))
+        logger.info("Запуск основного интерфейса...")
         app_interface.run()
         
-        logger.info(translator.translate("app_shutdown_success"))
+        logger.info("Приложение завершило работу успешно")
         
 
     except Exception as e:
         import traceback
         traceback.print_exc()
         if global_logger:
-            global_logger.critical(translator.translate("critical_error_main_thread"))
+            global_logger.critical("КРИТИЧЕСКАЯ ОШИБКА: Необработанное исключение в основном потоке")
             log_unhandled_exception(global_logger, e)
         else:
-            # Fallback if logger is not initialized
-            print(f"КРИТИЧЕСКАЯ ОШИБКА: Необработанное исключение в основном потоке: {e}")
-            traceback.print_exc()
+            print(f"Critical error before logger initialization: {str(e)}")
+
+if __name__ == "__main__":
+    # Точка входа при запуске скрипта
+    main()
