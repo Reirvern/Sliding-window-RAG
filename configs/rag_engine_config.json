@@ -25,7 +25,7 @@
     "retrieval_inference": {
         "engine_type": "llamacpp",
         "model_path": "models/mlabonne_gemma-3-4b-it-abliterated-Q8_0.gguf",
-        "n_gpu_layers": 26,
+        "n_gpu_layers": 30,
         "device_type": "gpu",
         "n_ctx": 6096, 
         "temperature": 0.1, 
