@@ -2,7 +2,7 @@
 import logging
 from pathlib import Path
 from typing import List, Dict, Any
-from core.domain.models import RAGQuery, RAGConfig, Chunk # Импортируем все DTO
+from core.domain.models import RAGQuery, RAGConfig, Chunk, SynthesisResult # Импортируем SynthesisResult
 from core.services.chunking_service import ChunkingService
 from core.services.retrieval_service import RetrievalService
 from core.services.synthesis_service import SynthesisService
@@ -30,6 +30,13 @@ class RAGEngine(Observable):
             config=self.config.synthesis_inference,
             logger=self.logger
         )
+        # НОВОЕ: Инициализация инференс-движка для запасного ретривера, если он сконфигурирован
+        self.retrieval_fallback_inference_engine = None
+        if self.config.retrieval_fallback_inference:
+            self.retrieval_fallback_inference_engine = InferenceFactory.get_engine(
+                config=self.config.retrieval_fallback_inference,
+                logger=self.logger
+            )
 
         # Инициализация сервисов
         self.chunking_service = ChunkingService(
@@ -40,87 +47,70 @@ class RAGEngine(Observable):
             config=self.config.retrieval,
             logger=self.logger,
             translator=self.translator,
-            inference_engine=self.retrieval_inference_engine # Передаем движок для ретривинга
+            inference_engine=self.retrieval_inference_engine, # Передаем основной движок
+            fallback_inference_engine=self.retrieval_fallback_inference_engine # НОВОЕ: Передаем запасной движок
         )
         self.synthesis_service = SynthesisService(
             config=self.config.synthesis,
             logger=self.logger,
             translator=self.translator,
-            inference_engine=self.synthesis_inference_engine # Передаем движок для синтеза
+            inference_engine=self.synthesis_inference_engine
         )
 
-        # Регистрация RAGEngine как Observer для своих сервисов
+        # Регистрируем RAGEngine как наблюдателя для каждого сервиса
         self.chunking_service.add_observer(self)
         self.retrieval_service.add_observer(self)
         self.synthesis_service.add_observer(self)
 
-
-    def run(self, rag_query: RAGQuery) -> str:
+    def run(self, rag_query: RAGQuery) -> SynthesisResult: # Возвращаем SynthesisResult
         """
-        Запускает полный цикл RAG для заданного запроса.
-        :param rag_query: DTO, содержащий вопрос, путь к файлам и выходную папку.
-        :return: Сгенерированный ответ.
+        Запускает полный процесс RAG: чанкинг, ретривинг, синтез.
         """
         self.logger.info(f"Начинаю RAG процесс для запроса: '{rag_query.question}'")
         self.notify_observers("status", {"message": self.translator.translate("rag_process_started")})
 
-        final_answer = self.translator.translate("rag_process_error").format(error="Неизвестная ошибка.") # Дефолтный ответ на случай ошибки
-
         try:
-            # 1. Чанкинг
+            # Шаг 1: Чанкинг документов
             self.logger.info("Шаг 1: Чанкинг документов...")
             self.notify_observers("status", {"message": self.translator.translate("chunking_in_progress")})
             chunks = self.chunking_service.process(rag_query)
-            # TODO: Сохранить чанки в rag_query.output_dir / "chunks"
-
             if not chunks:
-                self.logger.warning("Нет чанков для обработки.")
+                self.logger.warning("Чанкинг не дал результатов. Пропускаю дальнейшие шаги.")
                 self.notify_observers("complete", {"stage": "rag_process", "answer": self.translator.translate("no_chunks_to_process")})
-                return self.translator.translate("no_chunks_to_process")
+                return SynthesisResult(answer=self.translator.translate("no_chunks_to_process"), citations=[])
 
-            # 2. Ретривинг
+            # Шаг 2: Поиск релевантных чанков
             self.logger.info("Шаг 2: Поиск релевантных чанков...")
             self.notify_observers("status", {"message": self.translator.translate("retrieval_in_progress")})
-            
-            # ЗАГРУЗКА МОДЕЛИ ДЛЯ РЕТРИВИНГА
-            self.retrieval_inference_engine.load_model() 
             relevant_chunks = self.retrieval_service.retrieve(rag_query, chunks)
-            # ВЫГРУЗКА МОДЕЛИ ДЛЯ РЕТРИВИНГА
-            self.retrieval_inference_engine.unload_model() 
-
             if not relevant_chunks:
-                self.logger.warning("Нет релевантных чанков для синтеза.")
+                self.logger.warning("Ретривинг не нашел релевантных чанков. Пропускаю синтез.")
                 self.notify_observers("complete", {"stage": "rag_process", "answer": self.translator.translate("no_relevant_chunks")})
-                return self.translator.translate("no_relevant_chunks")
+                return SynthesisResult(answer=self.translator.translate("no_relevant_chunks"), citations=[])
 
-            # 3. Синтез ответа
+            # Шаг 3: Синтез финального ответа
             self.logger.info("Шаг 3: Синтез финального ответа...")
             self.notify_observers("status", {"message": self.translator.translate("synthesis_in_progress")})
-            
-            # ЗАГРУЗКА МОДЕЛИ ДЛЯ СИНТЕЗА
-            self.synthesis_inference_engine.load_model()
-            final_answer = self.synthesis_service.synthesize_answer(rag_query, relevant_chunks)
-            # ВЫГРУЗКА МОДЕЛИ ДЛЯ СИНТЕЗА
-            self.synthesis_inference_engine.unload_model() 
-
-            # TODO: Сохранить финальный ответ в rag_query.output_dir / "answer"
+            final_result = self.synthesis_service.synthesize_answer(rag_query, relevant_chunks) # Получаем SynthesisResult
 
             self.logger.info("RAG процесс завершен успешно.")
-            self.notify_observers("complete", {"stage": "rag_process", "answer": final_answer})
-            return final_answer
+            self.notify_observers("complete", {"stage": "rag_process", "answer": final_result.answer}) # Передаем только строку ответа для общего уведомления
+            return final_result
 
         except Exception as e:
             self.logger.error(f"Ошибка в процессе RAG: {e}", exc_info=True)
             self.notify_observers("error", {"stage": "rag_process", "error": str(e)})
-            final_answer = self.translator.translate("rag_process_error").format(error=str(e))
-            return final_answer
+            final_answer_error = self.translator.translate("rag_process_error").format(error=str(e))
+            return SynthesisResult(answer=final_answer_error, citations=[]) # Возвращаем SynthesisResult с ошибкой
         finally:
-            # Убедимся, что все модели выгружены, даже если произошла ошибка
-            # (хотя теперь они выгружаются после каждого шага, это хорошая подстраховка)
+            # Убедимся, что все модели выгружены
             if self.retrieval_inference_engine._loaded_model:
                 self.retrieval_inference_engine.unload_model()
             if self.synthesis_inference_engine._loaded_model:
                 self.synthesis_inference_engine.unload_model()
+            # НОВОЕ: Выгружаем запасную модель, если она была загружена
+            if self.retrieval_fallback_inference_engine and self.retrieval_fallback_inference_engine._loaded_model:
+                self.retrieval_fallback_inference_engine.unload_model()
 
 
     def update(self, message_type: str, data: Any):

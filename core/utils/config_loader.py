@@ -1,11 +1,11 @@
 # core/utils/config_loader.py
 import json
 from pathlib import Path
-from typing import Dict, Any # ДОБАВЛЕНО: Импорт Dict и Any
+from typing import Dict, Any, Optional # Добавляем Optional
 from core.domain.models import RAGConfig, ChunkingConfig, RetrievalConfig, SynthesisConfig, InferenceConfig
-import logging # Импортируем logging для отладки
+import logging
 
-logger = logging.getLogger('AltRAG') # Получаем логгер
+logger = logging.getLogger('AltRAG')
 
 def load_rag_config(config_path: Path) -> RAGConfig:
     """Загружает конфигурацию RAG из JSON файла."""
@@ -40,16 +40,19 @@ def load_rag_config(config_path: Path) -> RAGConfig:
         strategy_type=retrieval_conf_data.get("strategy_type", 1),
         keywords=retrieval_conf_data.get("keywords"),
         top_k=retrieval_conf_data.get("top_k", 3), 
-        retriever_prompt=retrieval_conf_data.get("retriever_prompt", "") 
+        retriever_prompt=retrieval_conf_data.get("retriever_prompt", ""),
+        retriever_fallback_prompt=retrieval_conf_data.get("retriever_fallback_prompt", "") # НОВОЕ: Чтение fallback промпта
     )
     logger.debug(f"RetrievalConfig создан: strategy_type={retrieval_config.strategy_type}, top_k={retrieval_config.top_k}")
 
 
     synthesis_conf_data = data.get("synthesis", {})
     synthesis_config = SynthesisConfig(
-        prompt_template=synthesis_conf_data.get("prompt_template", "Используя следующий контекст:\n{context}\n\nОтветь на вопрос: {question}")
+        strategy_type=synthesis_conf_data.get("strategy_type", 1),
+        synthesis_prompt=synthesis_conf_data.get("synthesis_prompt", "Используя следующий контекст:\n{context}\n\nОтветь на вопрос: {question}"),
+        context_token_buffer=synthesis_conf_data.get("context_token_buffer", 2000)
     )
-    logger.debug(f"SynthesisConfig создан: prompt_template_len={len(synthesis_config.prompt_template)}")
+    logger.debug(f"SynthesisConfig создан: synthesis_prompt_len={len(synthesis_config.synthesis_prompt)}")
     
     # Загрузка конфигурации для инференса ретривера
     retrieval_inference_conf_data = data.get("retrieval_inference", {})
@@ -65,10 +68,29 @@ def load_rag_config(config_path: Path) -> RAGConfig:
         top_p=retrieval_inference_conf_data.get("top_p", 0.9), 
         top_k=retrieval_inference_conf_data.get("top_k", 20), 
         repeat_penalty=retrieval_inference_conf_data.get("repeat_penalty", 1.0), 
-        stop_sequences=retrieval_inference_conf_data.get("stop_sequences", []), 
-        prompt_template=retrieval_inference_conf_data.get("prompt_template") 
+        stop_sequences=retrieval_inference_conf_data.get("stop_sequences", []) 
     )
     logger.debug(f"RetrievalInferenceConfig создан: n_ctx={retrieval_inference_config.n_ctx}, model_path={retrieval_inference_config.model_path.name}")
+
+    # НОВОЕ: Загрузка конфигурации для запасного инференса ретривера
+    retrieval_fallback_inference_conf_data = data.get("retrieval_fallback_inference", None)
+    retrieval_fallback_inference_config: Optional[InferenceConfig] = None
+    if retrieval_fallback_inference_conf_data:
+        logger.debug(f"Сырые данные retrieval_fallback_inference: {retrieval_fallback_inference_conf_data}")
+        retrieval_fallback_inference_config = InferenceConfig(
+            engine_type=retrieval_fallback_inference_conf_data.get("engine_type", "llamacpp"),
+            model_path=Path(retrieval_fallback_inference_conf_data.get("model_path", "models/default_fallback_model.gguf")),
+            n_gpu_layers=retrieval_fallback_inference_conf_data.get("n_gpu_layers", 0),
+            device_type=retrieval_fallback_inference_conf_data.get("device_type", "auto"),
+            n_ctx=retrieval_fallback_inference_conf_data.get("n_ctx", 4096), 
+            temperature=retrieval_fallback_inference_conf_data.get("temperature", 0.01), 
+            max_new_tokens=retrieval_fallback_inference_conf_data.get("max_new_tokens", 5), 
+            top_p=retrieval_fallback_inference_conf_data.get("top_p", 0.1), 
+            top_k=retrieval_fallback_inference_conf_data.get("top_k", 1), 
+            repeat_penalty=retrieval_fallback_inference_conf_data.get("repeat_penalty", 1.0), 
+            stop_sequences=retrieval_fallback_inference_conf_data.get("stop_sequences", ["\n", ".", ",", "!", "?", "Да.", "Нет."]), 
+        )
+        logger.debug(f"RetrievalFallbackInferenceConfig создан: n_ctx={retrieval_fallback_inference_config.n_ctx}, model_path={retrieval_fallback_inference_config.model_path.name}")
 
 
     # Загрузка конфигурации для инференса синтеза
@@ -86,7 +108,6 @@ def load_rag_config(config_path: Path) -> RAGConfig:
         top_k=synthesis_inference_conf_data.get("top_k", 40),
         repeat_penalty=synthesis_inference_conf_data.get("repeat_penalty", 1.1),
         stop_sequences=synthesis_inference_conf_data.get("stop_sequences", ["\n\nВопрос:", "###", "User:"]),
-        prompt_template=synthesis_inference_conf_data.get("prompt_template") 
     )
     logger.debug(f"SynthesisInferenceConfig создан: n_ctx={synthesis_inference_config.n_ctx}, model_path={synthesis_inference_config.model_path.name}")
 
@@ -97,6 +118,7 @@ def load_rag_config(config_path: Path) -> RAGConfig:
         synthesis_config=synthesis_config,
         retrieval_inference_config=retrieval_inference_config,
         synthesis_inference_config=synthesis_inference_config,
+        retrieval_fallback_inference_config=retrieval_fallback_inference_config, # НОВОЕ: Передаем конфиг запасного ретривера
         general_language=data.get("general_language", "ru") 
     )
 

@@ -106,6 +106,22 @@ class LlamacppInferenceEngine(BaseInferenceEngine):
             self.logger.error(f"Ошибка при генерации текста: {e}", exc_info=True)
             return f"Ошибка генерации: {e}"
 
+    def get_token_count(self, text: str) -> int:
+        """
+        Возвращает количество токенов в заданном тексте, используя токенизатор загруженной модели.
+        """
+        if not self._loaded_model:
+            self.logger.warning("Модель не загружена, не могу подсчитать токены. Возвращаю 0.")
+            return 0
+        try:
+            # Llama.cpp имеет метод tokenize
+            tokens = self._loaded_model.tokenize(text.encode("utf-8"))
+            return len(tokens)
+        except Exception as e:
+            self.logger.error(f"Ошибка при подсчете токенов: {e}", exc_info=True)
+            return 0
+
+
     def unload_model(self):
         """
         Выгружает модель из памяти.

@@ -1,54 +1,67 @@
 # core/factories/retriever_factory.py
 import logging
-from typing import Dict, Type
+from typing import Any, Optional
 
 from core.retrieval.base_retriever import BaseRetriever
-from core.retrieval.window_retriever import WindowRetriever # Импортируем новую стратегию
-from core.retrieval.keyword_retriever import KeywordRetriever # Импортируем нашу стратегию
 from core.domain.models import RetrievalConfig, InferenceConfig
 from core.utils.localization.translator import Translator
 
+# Импортируем конкретные реализации ретриверов
+from core.retrieval.window_retriever import WindowRetriever
+from core.retrieval.keyword_retriever import KeywordRetriever
+from core.retrieval.best_window_retriever import BestWindowRetriever # НОВОЕ: Импортируем BestWindowRetriever
+
 class RetrieverFactory:
     """
-    Фабрика для создания экземпляров различных стратегий ретривинга.
+    Фабрика для создания различных стратегий ретривинга.
     """
-    _retriever_map: Dict[int, Type[BaseRetriever]] = {
-        1: WindowRetriever,  # Стратегия 1: Анализ каждого чанка с LLM
-        2: KeywordRetriever, # Стратегия 2: Поиск по ключевым словам + LLM
-        # Добавьте другие стратегии ретривинга здесь
+    # НОВОЕ: Добавляем BestWindowRetriever
+    _retriever_map = {
+        1: WindowRetriever, # Теперь 1 будет BestWindowRetriever
+        2: KeywordRetriever,
+        3: BestWindowRetriever,
+        # Если захотим оставить старый WindowRetriever, можно добавить 3: WindowRetriever
     }
 
-    @classmethod
-    def get_retriever(cls, 
-                      strategy_type: int, 
-                      config: RetrievalConfig, 
-                      inference_config: InferenceConfig, 
+    @staticmethod
+    def get_retriever(strategy_type: int,
+                      config: RetrievalConfig,
+                      inference_config: InferenceConfig, # Конфиг основной модели ретривера
                       logger: logging.Logger,
-                      translator: Translator) -> BaseRetriever:
+                      translator: Translator,
+                      fallback_inference_config: Optional[InferenceConfig] = None, # НОВОЕ: Конфиг запасной модели
+                      fallback_inference_engine: Optional[Any] = None # НОВОЕ: Экземпляр запасного инференс-движка
+                      ) -> BaseRetriever:
         """
-        Возвращает экземпляр ретривера на основе указанного типа стратегии.
-        
+        Возвращает экземпляр конкретной стратегии ретривера.
+
         Args:
-            strategy_type: Тип стратегии ретривинга (числовой идентификатор).
+            strategy_type: Тип стратегии ретривера (например, 1 для BestWindowRetriever).
             config: Объект RetrievalConfig.
-            inference_config: Объект InferenceConfig для ретривера.
+            inference_config: Объект InferenceConfig для основной модели ретривера.
             logger: Логгер.
             translator: Переводчик.
-            
+            fallback_inference_config: Объект InferenceConfig для запасной модели ретривера (опционально).
+            fallback_inference_engine: Экземпляр инференс-движка для запасной модели ретривера (опционально).
+
         Returns:
             Экземпляр BaseRetriever.
-            
+
         Raises:
-            ValueError: Если тип стратегии неизвестен.
+            ValueError: Если указан неизвестный тип стратегии.
         """
-        retriever_class = cls._retriever_map.get(strategy_type)
-        if not retriever_class:
+        strategy_class = RetrieverFactory._retriever_map.get(strategy_type)
+        if not strategy_class:
             logger.error(f"Неизвестный тип стратегии ретривинга: {strategy_type}")
             raise ValueError(f"Неизвестный тип стратегии ретривинга: {strategy_type}")
         
-        logger.info(f"Создание ретривера типа: {retriever_class.__name__}")
-        return retriever_class(config=config, 
-                               inference_config=inference_config, 
-                               logger=logger,
-                               translator=translator)
+        logger.info(f"Создаю стратегию ретривинга: {strategy_class.__name__}")
+        
+        # НОВОЕ: Передаем параметры запасной модели, если они есть
+        if strategy_class == BestWindowRetriever:
+            return strategy_class(config, inference_config, logger, translator,
+                                  fallback_inference_config=fallback_inference_config,
+                                  fallback_inference_engine=fallback_inference_engine)
+        else:
+            return strategy_class(config, inference_config, logger, translator)
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from tqdm import tqdm
 from typing import Any
 from core.utils.localization.translator import Translator
-from core.domain.models import RAGQuery
+from core.domain.models import RAGQuery, SynthesisResult # Импортируем SynthesisResult
 from core.utils.observer import Observer
 
 class CLIInterface(Observer):
@@ -55,14 +55,39 @@ class CLIInterface(Observer):
         # rag_engine.add_observer(app_interface) должен быть вызван.
         # Проверим это в фабрике, если проблема сохранится.
 
-        final_answer = self.rag_engine.run(rag_query) # Запускаем RAG Engine
+        final_result: SynthesisResult = self.rag_engine.run(rag_query) # Запускаем RAG Engine, ожидаем SynthesisResult
 
         # Вывод результата
         tqdm.write("\n" + self.translator.translate("result_title"))
         tqdm.write("-" * 50)
-        tqdm.write(final_answer)
+        
+        # ИЗМЕНЕНИЕ: Улучшенный вывод ответов синтеза
+        # simple_synthesis.py теперь возвращает объединенную строку,
+        # но если мы захотим разделять ответы по блокам, то нужно будет
+        # изменить тип возвращаемого значения в simple_synthesis.py
+        # Пока выводим final_result.answer как есть, но с возможностью
+        # добавить нумерацию, если ответы будут разделены
+        
+        # Если simple_synthesis.py будет возвращать List[str] для all_answers,
+        # то можно будет сделать так:
+        # if isinstance(final_result.answer, list):
+        #     for i, block_answer in enumerate(final_result.answer):
+        #         tqdm.write(self.translator.translate("synthesis_block_answer", block_num=i+1))
+        #         tqdm.write(block_answer)
+        #         tqdm.write("-" * 50)
+        # else:
+        tqdm.write(final_result.answer)
         tqdm.write("-" * 50)
         
+        # Опционально: вывод цитат
+        if final_result.citations:
+            tqdm.write("\n" + self.translator.translate("citations_title"))
+            for i, citation in enumerate(final_result.citations):
+                tqdm.write(f"- [{i+1}] {citation.get('text', '')} (Источник: {citation.get('source_file', 'Неизвестно')}, Чанк: {citation.get('chunk_id', 'Неизвестно')})")
+        else:
+            tqdm.write("\n" + self.translator.translate("no_citations_found"))
+
+
     def _create_output_folder(self):
         """Создает уникальную папку для результатов"""
         timestamp = datetime.now().strftime("%d%m%y_%H%M%S")

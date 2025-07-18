@@ -1,6 +1,6 @@
 # core/domain/models.py
 from pathlib import Path
-from typing import List, Optional, Literal, Dict
+from typing import List, Optional, Literal, Dict, Any # Добавляем Any для SynthesisResult
 
 class RAGQuery:
     """
@@ -80,8 +80,8 @@ class InferenceConfig:
                  top_p: float = 0.95,
                  top_k: int = 40,
                  repeat_penalty: float = 1.1,
-                 stop_sequences: Optional[List[str]] = None,
-                 prompt_template: str = "{prompt}"): # Общий шаблон промпта
+                 stop_sequences: Optional[List[str]] = None
+                 ): 
         self.engine_type = engine_type
         self.model_path = model_path
         self.n_gpu_layers = n_gpu_layers
@@ -93,7 +93,6 @@ class InferenceConfig:
         self.top_k = top_k
         self.repeat_penalty = repeat_penalty
         self.stop_sequences = stop_sequences if stop_sequences is not None else []
-        self.prompt_template = prompt_template
 
 class RetrievalConfig:
     """
@@ -103,19 +102,27 @@ class RetrievalConfig:
                  strategy_type: int = 1, # Номер стратегии (для фабрики)
                  top_k: int = 5, # Сколько наиболее релевантных чанков вернуть
                  keywords: Optional[List[str]] = None, # Для стратегии с ключевыми словами
-                 retriever_prompt: str = ""): # ИЗМЕНЕНО: Добавляем retriever_prompt
+                 retriever_prompt: str = "", # Промпт для основной модели ретривера
+                 retriever_fallback_prompt: str = "" # Новый промпт для запасной модели ретривера
+                 ): 
         self.strategy_type = strategy_type
         self.top_k = top_k
         self.keywords = keywords if keywords is not None else []
-        self.retriever_prompt = retriever_prompt # ИЗМЕНЕНО: Инициализируем retriever_prompt
+        self.retriever_prompt = retriever_prompt
+        self.retriever_fallback_prompt = retriever_fallback_prompt # Инициализируем новый промпт
 
 class SynthesisConfig:
     """
     DTO для конфигурации модуля синтеза/генерации ответа.
     """
     def __init__(self,
-                 prompt_template: str = ""): # Специфический шаблон промпта для синтеза
-        self.prompt_template = prompt_template
+                 strategy_type: int = 1, # Добавляем тип стратегии для фабрики синтеза
+                 synthesis_prompt: str = "", # Используем synthesis_prompt вместо prompt_template
+                 context_token_buffer: int = 2000 # Буфер токенов для ответа и системных инструкций
+                 ):
+        self.strategy_type = strategy_type
+        self.synthesis_prompt = synthesis_prompt
+        self.context_token_buffer = context_token_buffer
 
 class RAGConfig:
     """
@@ -127,10 +134,27 @@ class RAGConfig:
                  synthesis_config: SynthesisConfig,
                  retrieval_inference_config: InferenceConfig, # Конфиг для инференса ретривера
                  synthesis_inference_config: InferenceConfig, # Конфиг для инференса синтеза
+                 retrieval_fallback_inference_config: Optional[InferenceConfig] = None, # НОВОЕ: Конфиг для запасного ретривера
                  general_language: str = 'en'): # Язык для промптов и т.д.
         self.chunking = chunking_config
         self.retrieval = retrieval_config
         self.synthesis = synthesis_config
         self.retrieval_inference = retrieval_inference_config
         self.synthesis_inference = synthesis_inference_config
+        self.retrieval_fallback_inference = retrieval_fallback_inference_config # Инициализируем новый конфиг
         self.general_language = general_language
+
+class SynthesisResult:
+    """
+    DTO для хранения результата синтеза, включая ответ и цитаты.
+    """
+    def __init__(self,
+                 answer: str,
+                 citations: List[Dict[str, Any]]):
+        self.answer = answer
+        self.citations = citations
+
+    def __repr__(self):
+        return (f"SynthesisResult(answer='{self.answer[:100]}...', "
+                f"citations_count={len(self.citations)})")
+

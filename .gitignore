@@ -30,5 +30,6 @@ test.txt
 scan.py
 clpy.py
 user_data/
+logs/
 # models/ 
 # Если не хотите хранить модели в гите
