@@ -71,6 +71,7 @@ class InferenceConfig:
     """
     def __init__(self,
                  engine_type: Literal["llamacpp", "vllm_stub", "hf_transformers_stub"] = "llamacpp",
+                 runtime: str = "auto", # <-- НОВОЕ ПОЛЕ (auto, cuda12, cpu_x64 и т.д.)
                  model_path: Path = Path("models/default_model.gguf"),
                  n_gpu_layers: int = 0, # Количество слоев, выгружаемых на GPU (для llama.cpp)
                  device_type: Literal["cpu", "cuda", "amd", "integrated", "auto"] = "auto", # Тип устройства

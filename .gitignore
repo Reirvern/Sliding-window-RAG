@@ -28,8 +28,11 @@ __pycache__/
 project_structure.txt
 test.txt
 scan.py
+full_project_code.txt
+my_project_code.txt
 clpy.py
 user_data/
 logs/
+runtimes/
 # models/ 
 # Если не хотите хранить модели в гите

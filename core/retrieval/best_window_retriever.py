@@ -53,8 +53,19 @@ class BestWindowRetriever(BaseRetriever):
         # Загружаем основную модель для ретривинга
         inference_engine.load_model()
 
+        # НОВОЕ: Флаг для принудительного перезапуска сервера
+        force_restart_server = False
+        
+
         try: # Этот try-блок теперь охватывает весь цикл и выгрузку
             for i, chunk in enumerate(chunks):
+                # НОВОЕ: Если на прошлом шаге модель сошла с ума, жестко перезапускаем сервер
+                if force_restart_server:
+                    self.logger.warning("Принудительный жесткий перезапуск сервера llama.cpp для очистки памяти!")
+                    inference_engine.unload_model()
+                    inference_engine.load_model()
+                    force_restart_server = False # Сбрасываем флаг
+
                 self.notify_observers("progress", {
                     "stage": "retrieval",
                     "current": i + 1,
@@ -81,6 +92,11 @@ class BestWindowRetriever(BaseRetriever):
                     repeat_penalty=self.inference_config.repeat_penalty,
                     stop=self.inference_config.stop_sequences # Используем стоп-последовательности из конфига основной модели
                 )
+                # Проверка на "бред" модели (спецтокены)
+                if "<unused" in llm_response_attempt1 or len(llm_response_attempt1) > 40:
+                    self.logger.warning(f"Модель начала бредить на чанке {chunk.chunk_id}. Запланирован перезапуск сервера.")
+                    force_restart_server = True
+
                 processed_llm_response = self._extract_yes_no(llm_response_attempt1)
                 self.logger.debug(f"Ответ LLM (попытка 1) для чанка {chunk.chunk_id} (сырой): '{llm_response_attempt1.strip()}', обработанный: '{processed_llm_response}'")
 
