@@ -13,6 +13,7 @@ class RAGQuery:
         self.question = question
         self.input_path = input_path
         self.output_dir = output_dir
+        self.early_stop = False # НОВОЕ: Флаг для ранней остановки ретривинга
 
     def __repr__(self):
         return (f"RAGQuery(question='{self.question}', "
@@ -158,4 +159,3 @@ class SynthesisResult:
     def __repr__(self):
         return (f"SynthesisResult(answer='{self.answer[:100]}...', "
                 f"citations_count={len(self.citations)})")
-

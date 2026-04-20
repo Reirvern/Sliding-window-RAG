@@ -41,11 +41,10 @@ def initialize_system(config_path: Path) -> Dict[str, Any]:
     config = load_config(config_path)
     
     # Настройка логгера
-    # ИЗМЕНЕНО: Передаем строковые значения уровней логирования
     logger = setup_logger(
-        log_level=config['logging']['level'], # Передаем строку
+        log_level=config['logging']['level'],
         log_to_console=config['logging']['log_to_console'],
-        console_log_level=config['logging']['console_level'], # Передаем строку
+        console_log_level=config['logging']['console_level'],
         log_to_file=config['logging']['log_to_file'],
         log_file_path=Path('logs') / 'app.log'
     )
@@ -88,30 +87,29 @@ def main():
             translator=translator
         )
         
+        # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ОПРЕДЕЛЕНИЕ ТИПА ИНТЕРФЕЙСА ---
+        # Если при запуске передан аргумент --gui, используем gui.
+        # Иначе используем то, что указано в config.json
+        current_interface = "gui" if "--gui" in sys.argv else config.get('interface', 'cli')
+        
         # Создание интерфейса
         app_interface = create_interface(
-            interface_type=config['interface'],
+            interface_type=current_interface,
             config=config,
             rag_engine=rag_engine,
             logger=logger,
             translator=translator
         )
-        
 
-        # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ЗДЕСЬ: РЕГИСТРАЦИЯ CLIInterface КАК НАБЛЮДАТЕЛЯ RAGEngine ---
-        # Поскольку CLIInterface является Observer, и RAGEngine является Observable,
-        # CLIInterface должен быть добавлен как наблюдатель к RAGEngine,
-        # чтобы получать уведомления о прогрессе.
+        # Подключаем интерфейс как наблюдателя к ядру (чтобы видеть статусы и логи)
         rag_engine.add_observer(app_interface)
-        # ----------------------------------------------------------------------------------
 
         # Запуск основного цикла приложения
-        logger.info("Запуск основного интерфейса...")
+        logger.info(f"Запуск основного интерфейса ({current_interface})...")
         app_interface.run()
         
         logger.info("Приложение завершило работу успешно")
         
-
     except Exception as e:
         import traceback
         traceback.print_exc()

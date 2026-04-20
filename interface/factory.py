@@ -22,7 +22,13 @@ def create_interface(interface_type: str, config: dict, rag_engine, logger, tran
             return CLIInterface(config, rag_engine, logger, translator)
         elif interface_type == "gui":
             logger.info("Создание GUI интерфейса...")
+            from interface.gui import GUIInterface  # Импортируем наш новый класс
             return GUIInterface(config, rag_engine, logger, translator)
+        elif interface_type == "webui":
+            logger.info("WebUI запускается через собственный скрипт (Gradio).")
+            class DummyInterface:
+                def run(self): pass
+            return DummyInterface()
         elif interface_type == "server":
             logger.info("Создание серверного интерфейса...")
             return ServerInterface(config, rag_engine, logger, translator)

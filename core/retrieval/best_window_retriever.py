@@ -59,6 +59,11 @@ class BestWindowRetriever(BaseRetriever):
 
         try: # Этот try-блок теперь охватывает весь цикл и выгрузку
             for i, chunk in enumerate(chunks):
+                
+                # НОВОЕ: Проверка на раннюю остановку из GUI
+                if getattr(rag_query, 'early_stop', False):
+                    self.logger.info("Получен сигнал ранней остановки. Прерываю поиск.")
+                    break
                 # НОВОЕ: Если на прошлом шаге модель сошла с ума, жестко перезапускаем сервер
                 if force_restart_server:
                     self.logger.warning("Принудительный жесткий перезапуск сервера llama.cpp для очистки памяти!")
