@@ -1,6 +1,11 @@
 @echo off
-call .\rag_venv\Scripts\activate.bat
+chcp 65001 > nul
+title Alt-RAG CLI
 
-python main.py
+:: Полная изоляция от глобальных библиотек Windows
+set PYTHONNOUSERSITE=1
+
+echo Запуск консольного интерфейса...
+.\python\python.exe main.py
 
 pause

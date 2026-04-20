@@ -143,8 +143,7 @@ chcp 65001 > nul
 timeout /t 2 /nobreak > nul
 taskkill /F /IM python.exe > nul 2>&1
 taskkill /F /IM llama-server.exe > nul 2>&1
-call .\\rag_venv\\Scripts\\activate.bat
-python scripts\\update_llamacpp.py
+.\\python\\python.exe scripts\\update_llamacpp.py
 start run_webui.bat
 del "%~f0"
 """

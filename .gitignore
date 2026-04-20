@@ -3,6 +3,7 @@ venv/
 .venv/
 env/
 rag_venv/
+python/
 
 # Игнорировать кэш Python и скомпилированные файлы
 __pycache__/
@@ -34,5 +35,6 @@ clpy.py
 user_data/
 logs/
 runtimes/
+models/
 # models/ 
 # Если не хотите хранить модели в гите
