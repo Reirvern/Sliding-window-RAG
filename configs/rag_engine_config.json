@@ -13,7 +13,7 @@
         "strategy_type": 3,
         "model_path": "models/retrieval_model.gguf",
         "keywords": ["Alt-RAG", "проект", "архитектура"],
-        "top_k": 3000,
+        "top_k": 20,
         "retriever_prompt": "Фрагмент:\n{chunk_content} Основываясь только на следующем фрагменте текста, представленном выше, ответь, можно ли с помощью текста выше дать ответ на вопрос '{prompt}'. Строго запрещено давать пояснения. Ответ надо дать строго одним словом: 'да' или 'нет'.\n\n \n\nОтвет:",
         "retriever_fallback_prompt": "Проанализируй следующий фрагмент текста и строго ответь 'да' или 'нет' на вопрос '{prompt}'. Ответ должен быть ТОЛЬКО 'да' или 'нет'.\n\nФрагмент: {chunk_content}\n\nОтвет:"
     },
@@ -24,7 +24,7 @@
     },
     "retrieval_inference": {
         "engine_type": "llamacpp",
-        "model_path": "models/Gemma-4-E4B-Abliterated.Q4_K_M.gguf",
+        "model_path": "models/gemma-4-E4B-it-OBLITERATED-Q4_K_M.gguf",
         "n_gpu_layers": 30,
         "device_type": "cuda",
         "n_ctx": 6096, 
@@ -37,7 +37,7 @@
     },
     "retrieval_fallback_inference": {
         "engine_type": "llamacpp",
-        "model_path": "models/Gemma-4-E4B-Abliterated.Q4_K_M.gguf",
+        "model_path": "models/gemma-4-E4B-it-OBLITERATED-Q4_K_M.gguf",
         "n_gpu_layers": 26,
         "device_type": "cuda",
         "n_ctx": 4096,
@@ -50,7 +50,7 @@
     },
     "synthesis_inference": {
         "engine_type": "llamacpp",
-        "model_path": "models/Gemma-4-E4B-Abliterated.Q4_K_M.gguf",
+        "model_path": "models/gemma-4-E4B-it-OBLITERATED-Q4_K_M.gguf",
         "n_gpu_layers": 34,
         "device_type": "cuda",
         "n_ctx": 16384,

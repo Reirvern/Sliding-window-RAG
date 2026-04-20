@@ -94,9 +94,8 @@ class LlamacppInferenceEngine(BaseInferenceEngine):
 
         gen_params = self._apply_generation_params(gen_kwargs)
 
-        # Флаг для определения Синтеза (по наличию системного промпта)
-        is_complex_chat = any(m.get("role") == "system" for m in messages)
-
+        # Теперь мы ВСЕГДА используем формат чата, чтобы сервер сам применял 
+        # правильный Chat Template (теги инструкций) для любой модели.
         payload = {
             "temperature": gen_params.get("temperature"),
             "max_tokens": gen_params.get("max_tokens"),
@@ -104,36 +103,13 @@ class LlamacppInferenceEngine(BaseInferenceEngine):
             "top_k": gen_params.get("top_k"),
             "repeat_penalty": gen_params.get("repeat_penalty"),
             "stop": gen_params.get("stop", []),
-            "cache_prompt": False
+            "cache_prompt": False,
+            "messages": messages  # Просто передаем массив сообщений как есть
         }
 
         try:
-            if is_complex_chat:
-                self.logger.debug("Определен сложный запрос (Синтез). Использую /v1/chat/completions")
-                
-                # ИСПРАВЛЕНИЕ ДЛЯ GEMMA: Сливаем роль system и user в одно сообщение
-                merged_messages = []
-                system_content = ""
-                for msg in messages:
-                    if msg.get("role") == "system":
-                        system_content += msg.get("content", "") + "\n\n"
-                    elif msg.get("role") == "user":
-                        merged_messages.append({
-                            "role": "user", 
-                            "content": system_content + msg.get("content", "")
-                        })
-                        system_content = "" # Очищаем после добавления
-                    else:
-                        merged_messages.append(msg)
-                
-                payload["messages"] = merged_messages
-                response = requests.post(f"{self.api_url}/v1/chat/completions", json=payload)
-            
-            else:
-                self.logger.debug("Определен простой запрос (Ретривер). Использую /v1/completions")
-                raw_prompt = "\n".join([msg.get("content", "") for msg in messages])
-                payload["prompt"] = raw_prompt.strip()
-                response = requests.post(f"{self.api_url}/v1/completions", json=payload)
+            # Всегда обращаемся к эндпоинту чата
+            response = requests.post(f"{self.api_url}/v1/chat/completions", json=payload)
             
             # Логируем начало ответа
             self.logger.info("=" * 40)
@@ -144,10 +120,8 @@ class LlamacppInferenceEngine(BaseInferenceEngine):
             result_json = response.json()
             
             if "choices" in result_json and len(result_json["choices"]) > 0:
-                if is_complex_chat:
-                    generated_text = result_json["choices"][0]["message"]["content"]
-                else:
-                    generated_text = result_json["choices"][0]["text"]
+                # В chat/completions ответ всегда лежит внутри message -> content
+                generated_text = result_json["choices"][0]["message"]["content"]
                 return generated_text
             else:
                 self.logger.warning("Пустой ответ от сервера 'choices'.")
