@@ -16,19 +16,30 @@ REM Папки проекта
 set "PYTHON_DIR=%~dp0python"
 set "PYTHON_EXE=%PYTHON_DIR%\python.exe"
 
-REM 1. ПРОВЕРКА И ЛОКАЛЬНАЯ УСТАНОВКА PYTHON 3.11
+REM 1. ПРОВЕРКА И ЛОКАЛЬНАЯ УСТАНОВКА PYTHON
 if exist "%PYTHON_EXE%" goto :skip_python
 
-echo [1/5] Скачивание полноценного Python 3.11.9...
-curl.exe -L -o python_installer.exe "https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe"
+echo [1/5] Скачивание полноценного Python 3.10.11 (Portable Zip)...
+curl.exe -L -o python.zip "https://www.nuget.org/api/v2/package/python/3.10.11"
 
 echo.
-echo [2/5] Локальная установка Python, Tkinter и pip...
-echo (Откроется окно установки, ничего нажимать не нужно)
-start /wait python_installer.exe /passive InstallAllUsers=0 Include_launcher=0 Include_tcltk=1 Include_pip=1 TargetDir="%PYTHON_DIR%"
-del python_installer.exe
+echo [2/5] Распаковка Python и настройка окружения...
+powershell -Command "Expand-Archive -Path 'python.zip' -DestinationPath 'python_temp' -Force"
 
-echo Python успешно установлен!
+REM Перемещаем ядро Питона в нашу папку python
+move python_temp\tools "%PYTHON_DIR%" > nul
+
+REM Удаляем мусор
+rd /s /q python_temp
+del python.zip
+
+echo [~] Скачивание и установка pip...
+curl.exe -L -o get-pip.py "https://bootstrap.pypa.io/get-pip.py"
+"%PYTHON_EXE%" get-pip.py
+del get-pip.py
+
+echo.
+echo Python успешно распакован и настроен!
 goto :install_deps
 
 :skip_python
@@ -43,6 +54,11 @@ echo [3/5] Установка зависимостей проекта...
 echo.
 echo [4/5] Создание рабочих директорий...
 if not exist "runtimes" mkdir runtimes
+if not exist "runtimes\cpu_x64" mkdir runtimes\cpu_x64
+if not exist "runtimes\cuda12" mkdir runtimes\cuda12
+if not exist "runtimes\cuda13" mkdir runtimes\cuda13
+if not exist "runtimes\vulkan" mkdir runtimes\vulkan
+
 if not exist "models" mkdir models
 if not exist "user_data" mkdir user_data
 if not exist "user_data\outputs" mkdir user_data\outputs

@@ -8,6 +8,10 @@ import io
 import shutil
 import logging
 from pathlib import Path
+import ssl
+
+# Отключаем строгую проверку SSL для портативного Питона
+ssl._create_default_https_context = ssl._create_unverified_context
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(asctime)s - %(levelname)s - %(message)s')
