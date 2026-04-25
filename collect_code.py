@@ -2,7 +2,7 @@ import os
 
 # Список папок, которые мы КАТЕГОРИЧЕСКИ игнорируем
 EXCLUDE_DIRS = {
-    'rag_venv', 'venv', '.venv', 'env',  # Виртуальные окружения
+    'rag_venv', 'python', 'venv', 'runtimes', '.venv', 'env',  # Виртуальные окружения
     '__pycache__', '.git', '.idea', '.vscode', # Служебные папки IDE и Git
     'node_modules', 'dist', 'build', 'site-packages' # Библиотеки и сборки
 }
